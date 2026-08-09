@@ -1,0 +1,48 @@
+name: lingoocall
+description: "Real-time AI voice/video call and messaging translation app."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_localizations:
+    sdk: flutter
+
+  # حزم Firebase
+  firebase_core: ^3.1.0
+  firebase_messaging: ^15.0.1
+
+  # حزمة الإشعارات المحلية والخدمة المستمرة للمكالمات
+  flutter_local_notifications: ^17.0.0
+  flutter_foreground_task: ^6.1.1
+  simple_pip_mode: ^1.1.0
+
+  # لوحة الإيموجيات الشاملة والديناميكية
+  emoji_picker_flutter: ^3.0.0
+
+  # باقي حزم المشروع
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.2.1
+  intl: ^0.20.2
+  socket_io_client: ^3.1.6
+  flutter_webrtc: ^1.6.0
+  http: ^1.2.0
+  shared_preferences: ^2.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
