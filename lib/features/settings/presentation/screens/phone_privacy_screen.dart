@@ -20,9 +20,7 @@ class _PhonePrivacyScreenState extends State<PhonePrivacyScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('خصوصية رقم الهاتف'),
-      ),
+      appBar: AppBar(title: const Text('خصوصية رقم الهاتف')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -40,37 +38,49 @@ class _PhonePrivacyScreenState extends State<PhonePrivacyScreen> {
             ),
             child: Column(
               children: [
-                RadioListTile<PhoneNumberPrivacy>(
-                  title: const Text('الجميع'),
-                  subtitle: const Text('يمكن لأي شخص يزيل ملفك الشخصي رؤية رقمك'),
+                _buildPrivacyOption(
+                  title: 'الجميع',
+                  subtitle: 'يمكن لأي شخص يزيل ملفك الشخصي رؤية رقمك',
                   value: PhoneNumberPrivacy.everyone,
-                  groupValue: _selectedPrivacy,
-                  activeColor: AppColors.primary,
-                  onChanged: (val) => setState(() => _selectedPrivacy = val!),
                 ),
                 const Divider(height: 1),
-                RadioListTile<PhoneNumberPrivacy>(
-                  title: const Text('المتابعون المتبادلون'),
-                  subtitle: const Text('يظهر الرقم فقط للأشخاص الذين تتابعهم ويتابعونك'),
+                _buildPrivacyOption(
+                  title: 'المتابعون المتبادلون',
+                  subtitle: 'يظهر الرقم فقط للأشخاص الذين تتابعهم ويتابعونك',
                   value: PhoneNumberPrivacy.mutual,
-                  groupValue: _selectedPrivacy,
-                  activeColor: AppColors.primary,
-                  onChanged: (val) => setState(() => _selectedPrivacy = val!),
                 ),
                 const Divider(height: 1),
-                RadioListTile<PhoneNumberPrivacy>(
-                  title: const Text('لا أحد (مخفي دائماً)'),
-                  subtitle: const Text('لن يستطيع أي شخص رؤية رقمك، والتواصل يتم عبر اليوزر فقط'),
+                _buildPrivacyOption(
+                  title: 'لا أحد (مخفي دائماً)',
+                  subtitle:
+                      'لن يستطيع أي شخص رؤية رقمك، والتواصل يتم عبر اليوزر فقط',
                   value: PhoneNumberPrivacy.nobody,
-                  groupValue: _selectedPrivacy,
-                  activeColor: AppColors.primary,
-                  onChanged: (val) => setState(() => _selectedPrivacy = val!),
                 ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPrivacyOption({
+    required String title,
+    required String subtitle,
+    required PhoneNumberPrivacy value,
+  }) {
+    final isSelected = _selectedPrivacy == value;
+
+    return ListTile(
+      title: Text(title),
+      subtitle: Text(subtitle),
+      leading: Icon(
+        isSelected
+            ? Icons.radio_button_checked_rounded
+            : Icons.radio_button_unchecked_rounded,
+        color: isSelected ? AppColors.primary : Colors.grey,
+      ),
+      onTap: () => setState(() => _selectedPrivacy = value),
     );
   }
 }

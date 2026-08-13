@@ -1,9 +1,8 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lingoocall/core/constants/app_colors.dart';
 import 'package:lingoocall/core/controllers/app_controller.dart';
+import 'package:lingoocall/core/services/backend_api_service.dart';
+import 'package:lingoocall/features/auth/domain/models/user_profile.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
   final String email;
@@ -27,8 +26,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
 
   bool _isLoading = false;
-  final String _serverUrl = 'https://lingoocall-backend.onrender.com';
-
   @override
   void dispose() {
     for (var controller in _otpControllers) {
@@ -54,38 +51,37 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     }
 
     setState(() => _isLoading = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     try {
-      final response = await http.post(
-        Uri.parse('$_serverUrl/api/auth/verify-otp'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': widget.email,
-          'otp': otp,
-          'isSignUp': widget.isSignUp,
-        }),
+      final data = await BackendApiService.instance.verifyOtp(
+        email: widget.email,
+        otp: otp,
+        isSignUp: widget.isSignUp,
       );
 
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200 && data['success'] == true) {
-        // حفظ بيانات الجلسة محلياً لعدم المطالبة بتسجيل الدخول مجدداً
-        final prefs = await SharedPreferences.getInstance();
-        final user = data['user'] ?? {};
-
-        await prefs.setString('user_id', user['id']?.toString() ?? '');
-        await prefs.setString('username', user['username']?.toString() ?? '');
-        await prefs.setString('email', user['email']?.toString() ?? widget.email);
-        await prefs.setBool('is_logged_in', true);
-
+      if (data['success'] == true && data['user'] is Map) {
         if (!mounted) return;
+        await widget.controller.applyAuthenticatedUser(
+          UserProfile.fromJson(Map<String, dynamic>.from(data['user'] as Map)),
+        );
 
-        _showSnackBar('تم تأكيد البريد الإلكتروني بنجاح! مرحباً بك في LingooCall.', isSuccess: true);
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text(
+              'تم تأكيد البريد الإلكتروني بنجاح! مرحباً بك في LingooCall.',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
 
         // التوجيه إلى الشاشة الرئيسية
-        Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+        navigator.pushNamedAndRemoveUntil('/home', (route) => false);
       } else {
-        _showSnackBar(data['message'] ?? 'رمز التحقق غير صحيح، حاول مجدداً.');
+        _showSnackBar(data['message']?.toString() ?? 'رمز التحقق غير صحيح، حاول مجدداً.');
       }
     } catch (e) {
       _showSnackBar('حدث خطأ في الاتصال بالسيرفر أثناء التحقق.');
@@ -141,45 +137,49 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               ),
               const SizedBox(height: 28),
 
-              // حقول إدخال الـ 6 أرقام
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(6, (index) {
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      width: 46,
-                      height: 55,
-                      child: TextField(
-                        controller: _otpControllers[index],
-                        focusNode: _focusNodes[index],
-                        keyboardType: TextInputType.number,
-                        textAlign: TextAlign.center,
-                        maxLength: 1,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        decoration: InputDecoration(
-                          counterText: '',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
+              // حقول إدخال الـ 6 أرقام (مضبوطة لتبدأ من اليسار لليمين LTR)
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(6, (index) {
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        width: 46,
+                        height: 55,
+                        child: TextField(
+                          controller: _otpControllers[index],
+                          focusNode: _focusNodes[index],
+                          keyboardType: TextInputType.number,
+                          textAlign: TextAlign.center,
+                          textDirection: TextDirection.ltr,
+                          maxLength: 1,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
                           ),
+                          decoration: InputDecoration(
+                            counterText: '',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onChanged: (value) {
+                            if (value.isNotEmpty && index < 5) {
+                              _focusNodes[index + 1].requestFocus();
+                            } else if (value.isEmpty && index > 0) {
+                              _focusNodes[index - 1].requestFocus();
+                            }
+                            if (_enteredOtp.length == 6) {
+                              _verifyOtp();
+                            }
+                          },
                         ),
-                        onChanged: (value) {
-                          if (value.isNotEmpty && index < 5) {
-                            _focusNodes[index + 1].requestFocus();
-                          } else if (value.isEmpty && index > 0) {
-                            _focusNodes[index - 1].requestFocus();
-                          }
-                          if (_enteredOtp.length == 6) {
-                            _verifyOtp();
-                          }
-                        },
-                      ),
-                    );
-                  }),
+                      );
+                    }),
+                  ),
                 ),
               ),
               const SizedBox(height: 32),

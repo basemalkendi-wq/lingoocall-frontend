@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:lingoocall/core/constants/app_colors.dart';
 import 'package:lingoocall/core/constants/app_constants.dart';
 import 'package:lingoocall/core/controllers/app_controller.dart';
+import 'package:lingoocall/core/services/backend_api_service.dart';
+import 'package:lingoocall/features/auth/domain/models/user_profile.dart';
 import 'otp_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -31,8 +31,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController passwordController = TextEditingController();
   final TextEditingController confirmPasswordController =
       TextEditingController();
-
-  final String serverUrl = 'https://lingoocall-backend.onrender.com';
 
   final Map<String, Map<String, String>> localizedTexts = {
     'ar': {
@@ -148,24 +146,19 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => isLoading = true);
 
       try {
-        final response = await http.post(
-          Uri.parse('$serverUrl/api/auth/request-otp'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'email': emailText,
-            'username': usernameText,
-            'fullName': fullNameText,
-            'phone': fullPhone,
-            'password': passwordText,
-            'isSignUp': true,
-          }),
+        final data = await BackendApiService.instance.requestOtp(
+          email: emailText,
+          username: usernameText,
+          fullName: fullNameText,
+          phone: fullPhone,
+          password: passwordText,
+          nativeLanguage: widget.controller.currentUser.nativeLanguage,
+          avatarUrl: widget.controller.currentUser.avatarUrl,
         );
 
-        final data = jsonDecode(response.body);
-
-        if (response.statusCode == 200) {
+        if (data['success'] == true) {
           if (!mounted) return;
-          final otpCode = data?['otp']?.toString() ?? '';
+          final otpCode = data['otp']?.toString() ?? '';
           if (otpCode.isNotEmpty) {
             _showSnackBar(
               'رمز التحقق الخاص بك هو: $otpCode',
@@ -185,7 +178,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           );
         } else {
-          _showSnackBar(data?['message'] ?? tr('err_general'));
+          _showSnackBar(data['message']?.toString() ?? tr('err_general'));
         }
       } catch (_) {
         _showSnackBar(tr('err_network'));
@@ -200,22 +193,33 @@ class _LoginScreenState extends State<LoginScreen> {
       if (password.isEmpty) return _showSnackBar(tr('err_password_empty'));
 
       setState(() => isLoading = true);
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
 
       try {
-        final response = await http.post(
-          Uri.parse('$serverUrl/api/auth/login'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'identifier': identifier, 'password': password}),
+        final data = await BackendApiService.instance.login(
+          identifier: identifier,
+          password: password,
         );
 
-        final data = jsonDecode(response.body);
-
-        if (response.statusCode == 200 && data['success'] == true) {
+        if (data['success'] == true && data['user'] is Map) {
           if (!mounted) return;
-          _showSnackBar(tr('welcome'), isSuccess: true);
-          Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+          await widget.controller.applyAuthenticatedUser(
+            UserProfile.fromJson(Map<String, dynamic>.from(data['user'] as Map)),
+          );
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                tr('welcome'),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              backgroundColor: Colors.green.shade700,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          navigator.pushNamedAndRemoveUntil('/home', (route) => false);
         } else {
-          _showSnackBar(data?['message'] ?? tr('err_general'));
+          _showSnackBar(data['message']?.toString() ?? tr('err_general'));
         }
       } catch (_) {
         _showSnackBar(tr('err_network'));

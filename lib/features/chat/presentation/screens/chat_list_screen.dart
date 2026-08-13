@@ -102,10 +102,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
       id: phone,
       name: phone,
       phone: phone,
-      nativeLanguage: 'Arabic',
-      flag: '🇾🇪',
-      isRegistered: true,
-      isOnline: true,
+      nativeLanguage: 'Auto',
+      flag: '🏳️',
+      isRegistered: false,
+      isOnline: false,
     );
 
     widget.controller.openChat(tempContact);

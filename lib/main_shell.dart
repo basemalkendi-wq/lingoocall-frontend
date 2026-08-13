@@ -6,7 +6,7 @@ import 'package:lingoocall/features/call/presentation/widgets/incoming_call_dial
 import 'package:lingoocall/features/chat/presentation/screens/chat_list_screen.dart';
 import 'package:lingoocall/features/contacts/domain/models/contact_item.dart';
 import 'package:lingoocall/features/contacts/presentation/screens/contacts_screen.dart';
-import 'package:lingoocall/features/settings/presentation/screens/settings_screen.dart';
+import 'package:lingoocall/features/profile/presentation/screens/user_profile_screen.dart';
 import 'package:lingoocall/features/settings/presentation/widgets/navigation_drawer.dart';
 
 class MainShell extends StatefulWidget {
@@ -76,12 +76,13 @@ class _MainShellState extends State<MainShell> {
     final isAr = widget.controller.appLocale.languageCode == 'ar';
     final String chatsLabel = isAr ? 'المحادثات' : 'Chats';
     final String contactsLabel = isAr ? 'جهات الاتصال' : 'Contacts';
-    final String settingsLabel = isAr ? 'الإعدادات' : 'Settings';
+    final String profileLabel = isAr ? 'الملف الشخصي' : 'Profile';
 
+    // استبدال شاشة الإعدادات بشاشة الملف الشخصي (Instagram Style)
     final List<Widget> screens = [
       ChatListScreen(controller: widget.controller, scaffoldKey: _scaffoldKey),
       ContactsScreen(controller: widget.controller),
-      SettingsScreen(controller: widget.controller),
+      UserProfileScreen(controller: widget.controller),
     ];
 
     return ListenableBuilder(
@@ -109,9 +110,9 @@ class _MainShellState extends State<MainShell> {
                 label: contactsLabel,
               ),
               BottomNavigationBarItem(
-                icon: const Icon(Icons.settings_outlined),
-                activeIcon: const Icon(Icons.settings_rounded),
-                label: settingsLabel,
+                icon: const Icon(Icons.person_outline_rounded),
+                activeIcon: const Icon(Icons.person_rounded),
+                label: profileLabel,
               ),
             ],
           ),

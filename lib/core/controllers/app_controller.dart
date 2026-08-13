@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lingoocall/core/services/contacts_sync_service.dart';
 import 'package:lingoocall/core/services/socket_service.dart';
 import 'package:lingoocall/core/services/translation_service.dart';
 import 'package:lingoocall/features/auth/domain/models/user_profile.dart';
@@ -20,6 +23,9 @@ class AppController extends ChangeNotifier {
 
   bool _isAuthenticated = false;
   bool get isAuthenticated => _isAuthenticated;
+
+  bool _isContactsSyncing = false;
+  bool get isContactsSyncing => _isContactsSyncing;
 
   int _selectedBottomTab = 0;
   int get selectedBottomTab => _selectedBottomTab;
@@ -59,30 +65,65 @@ class AppController extends ChangeNotifier {
 
   final Map<String, List<ChatMessage>> _chatHistory = {};
   final List<ContactItem> _activeChatsList = [];
+  final List<ContactItem> _registeredContacts = [];
+
+  List<ContactItem> get registeredContacts =>
+      List.unmodifiable(_registeredContacts);
 
   AppController() {
     _initMockData();
+    _restoreSessionFromPreferences();
     _connectToSocketServer();
   }
 
   List<ContactItem> get activeChats {
-    if (_activeChatsList.isNotEmpty) {
-      return _activeChatsList;
+    return List.unmodifiable(_activeChatsList);
+  }
+
+  Future<void> _restoreSessionFromPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedUserJson = prefs.getString('current_user');
+
+    if (storedUserJson != null && storedUserJson.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(storedUserJson);
+        if (decoded is Map<String, dynamic>) {
+          _currentUser = UserProfile.fromJson(decoded);
+          _isAuthenticated = true;
+        }
+      } catch (_) {
+        // Fallback to legacy session keys below.
+      }
     }
-    return [
-      ContactItem(
-        id: 'c1',
-        name: 'Ayla Yılmaz',
-        phone: '+90 532 111 2233',
-        nativeLanguage: 'Turkish',
-        flag: '🇹🇷',
-        isRegistered: true,
-        isOnline: true,
-      ),
-    ];
+
+    if (!_isAuthenticated && prefs.getBool('is_logged_in') == true) {
+      _currentUser = _currentUser.copyWith(
+        id: prefs.getString('user_id') ?? _currentUser.id,
+        username: prefs.getString('username') ?? _currentUser.username,
+        email: prefs.getString('email') ?? _currentUser.email,
+      );
+      _isAuthenticated = true;
+    }
+
+    _connectToSocketServer();
+    notifyListeners();
+  }
+
+  Future<void> _persistSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_logged_in', _isAuthenticated);
+    await prefs.setString('user_id', _currentUser.id);
+    await prefs.setString('username', _currentUser.username);
+    await prefs.setString('email', _currentUser.email);
+    await prefs.setString('current_user', jsonEncode(_currentUser.toJson()));
   }
 
   void _connectToSocketServer() {
+    if (_currentUser.id.isEmpty) {
+      return;
+    }
+
+    _socketService.disconnect();
     _socketService.initSocket(
       userId: _currentUser.id,
       onUserStatusChanged: (data) {
@@ -114,7 +155,8 @@ class AppController extends ChangeNotifier {
     _socketService.listenToLiveSubtitles((data) {
       if (_isInCall) {
         _currentSubtitle = LiveSubtitle(
-          speakerName: data['speakerName'] ?? _activeCallContact?.name ?? 'Speaker',
+          speakerName:
+              data['speakerName'] ?? _activeCallContact?.name ?? 'Speaker',
           originalSentence: data['originalSentence'] ?? '',
           translatedSentence: data['translatedSentence'] ?? '',
           originalLang: data['originalLang'] ?? 'TR',
@@ -183,41 +225,66 @@ class AppController extends ChangeNotifier {
   void login() {
     _isAuthenticated = true;
     _connectToSocketServer();
+    _persistSession();
+    notifyListeners();
+  }
+
+  Future<void> applyAuthenticatedUser(UserProfile user) async {
+    _currentUser = user;
+    _isAuthenticated = true;
+    await _persistSession();
+    _connectToSocketServer();
     notifyListeners();
   }
 
   void logout() {
     _isAuthenticated = false;
     _isInCall = false;
+    _registeredContacts.clear();
     _socketService.disconnect();
+    SharedPreferences.getInstance().then((prefs) async {
+      await prefs.remove('is_logged_in');
+      await prefs.remove('user_id');
+      await prefs.remove('username');
+      await prefs.remove('email');
+      await prefs.remove('current_user');
+    });
     notifyListeners();
   }
 
   void updateNativeLanguage(String name, String flag) {
-    _currentUser = UserProfile(
-      id: _currentUser.id,
-      name: _currentUser.name,
-      phone: _currentUser.phone,
+    _currentUser = _currentUser.copyWith(
       nativeLanguage: name,
       nativeFlag: flag,
-      targetLanguage: _currentUser.targetLanguage,
-      targetFlag: _currentUser.targetFlag,
-      avatarUrl: _currentUser.avatarUrl,
     );
+    _persistSession();
     notifyListeners();
   }
 
   void updateTargetLanguage(String name, String flag) {
-    _currentUser = UserProfile(
-      id: _currentUser.id,
-      name: _currentUser.name,
-      phone: _currentUser.phone,
-      nativeLanguage: _currentUser.nativeLanguage,
-      nativeFlag: _currentUser.nativeFlag,
+    _currentUser = _currentUser.copyWith(
       targetLanguage: name,
       targetFlag: flag,
-      avatarUrl: _currentUser.avatarUrl,
     );
+    _persistSession();
+    notifyListeners();
+  }
+
+  Future<void> updateProfile({
+    String? name,
+    String? username,
+    String? email,
+    String? avatarUrl,
+    String? bio,
+  }) async {
+    _currentUser = _currentUser.copyWith(
+      name: name,
+      username: username,
+      email: email,
+      avatarUrl: avatarUrl,
+      bio: bio,
+    );
+    await _persistSession();
     notifyListeners();
   }
 
@@ -240,18 +307,11 @@ class AppController extends ChangeNotifier {
   Future<void> sendMessage(String text) async {
     if (_activeChatContact == null || text.trim().isEmpty) return;
 
-    String targetLangCode = 'tr';
-    final targetLangLower = _activeChatContact!.nativeLanguage.toLowerCase();
-
-    if (targetLangLower.contains('arabic') || targetLangLower.contains('عربي')) {
-      targetLangCode = 'ar';
-    } else if (targetLangLower.contains('english') || targetLangLower.contains('إنجليزي')) {
-      targetLangCode = 'en';
-    } else if (targetLangLower.contains('french') || targetLangLower.contains('فرنسي')) {
-      targetLangCode = 'fr';
-    } else if (targetLangLower.contains('turkish') || targetLangLower.contains('تركي')) {
-      targetLangCode = 'tr';
-    }
+    final targetLangCode = _resolveLanguageCode(
+      _activeChatContact!.isRegistered
+          ? _activeChatContact!.nativeLanguage
+          : _currentUser.targetLanguage,
+    );
 
     String translated = await _translationService.translateText(
       text: text,
@@ -290,14 +350,46 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> syncRegisteredContacts() async {
+    _isContactsSyncing = true;
+    notifyListeners();
+
+    try {
+      final contacts = await ContactsSyncService.instance.syncDeviceContacts();
+      _registeredContacts
+        ..clear()
+        ..addAll(contacts);
+    } catch (_) {
+      _registeredContacts.clear();
+    } finally {
+      _isContactsSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  String _resolveLanguageCode(String languageName) {
+    final normalized = languageName.toLowerCase();
+    if (normalized.contains('arab') || normalized.contains('عربي')) return 'ar';
+    if (normalized.contains('engl') || normalized.contains('إنجليزي'))
+      return 'en';
+    if (normalized.contains('fran') || normalized.contains('فرنسي'))
+      return 'fr';
+    if (normalized.contains('span') || normalized.contains('إسباني'))
+      return 'es';
+    if (normalized.contains('ger') || normalized.contains('ألماني'))
+      return 'de';
+    if (normalized.contains('chin') || normalized.contains('صيني')) return 'zh';
+    if (normalized.contains('turk') || normalized.contains('تركي')) return 'tr';
+    return 'auto';
+  }
+
   /// 🟢 بدء المكالمة مع إمكانية التمييز بين الاتصال الصوتي والاتصال المرئي
   void startCall(ContactItem contact, {bool isVideo = true}) {
     _activeCallContact = contact;
     _isInCall = true;
     _callSeconds = 0;
     _isMicMuted = false;
-    
-    // إذا كانت المكالمة صوتية تُغلق الكاميرا افتراضياً، وإذا كانت فيديو تُفتح الكاميرا مباشرة
+
     _isVideoOff = !isVideo;
     _showSubtitles = true;
 
@@ -307,42 +399,59 @@ class AppController extends ChangeNotifier {
       notifyListeners();
     });
 
-    _startSimulatedLiveSubtitles();
+    _startRealtimeLiveSubtitles();
     notifyListeners();
   }
 
-  void _startSimulatedLiveSubtitles() {
+  void _startRealtimeLiveSubtitles() {
     _subtitleTimer?.cancel();
-    final sampleSubtitles = [
-      LiveSubtitle(
-        speakerName: _activeCallContact?.name ?? 'Ayla Yılmaz',
-        originalSentence: 'Sesimi net bir şekilde alabiliyor musunuz?',
-        translatedSentence: 'هل يمكنك سماع صوتي بشكل واضح؟',
-        originalLang: 'TR',
-        targetLang: 'AR',
-      ),
-      LiveSubtitle(
-        speakerName: _currentUser.name,
-        originalSentence: 'نعم صوتك واضح والترجمة المباشرة تظهر فوراً على الشاشة!',
-        translatedSentence: 'Evet, sesiniz net ve canlı altyazı ekranda anında görünüyor!',
-        originalLang: 'AR',
-        targetLang: 'TR',
-      ),
-      LiveSubtitle(
-        speakerName: _activeCallContact?.name ?? 'Ayla Yılmaz',
-        originalSentence: 'LingooCall sayesinde hiçbir dil engeli kalmadı.',
-        translatedSentence: 'بفضل LingooCall، لم تعد هناك أي حواجز لغوية.',
-        originalLang: 'TR',
-        targetLang: 'AR',
-      ),
+
+    final samplePhrases = [
+      'Merhaba, bugün nasıl gidiyor?',
+      'Şu an çok net duydum, teşekkür ederim.',
+      'LingooCall sayesinde her dil anlaşılır hale geliyor.',
     ];
 
-    int index = 0;
-    _currentSubtitle = sampleSubtitles[0];
-    _subtitleTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      index = (index + 1) % sampleSubtitles.length;
-      _currentSubtitle = sampleSubtitles[index];
+    Future<void> pushSubtitle(int index) async {
+      if (!_isInCall || _activeCallContact == null) return;
+
+      final sourceLanguageCode = _resolveLanguageCode(
+        _currentUser.nativeLanguage,
+      );
+      final targetLanguageCode = _resolveLanguageCode(
+        _activeCallContact!.nativeLanguage,
+      );
+      final originalText = samplePhrases[index % samplePhrases.length];
+
+      final subtitleMap = await _translationService.translateLiveSubtitle(
+        speakerName: _activeCallContact!.name,
+        originalSentence: originalText,
+        sourceLanguageCode: sourceLanguageCode,
+        targetLanguageCode: targetLanguageCode,
+      );
+
+      _currentSubtitle = LiveSubtitle(
+        speakerName: subtitleMap['speakerName'] ?? _activeCallContact!.name,
+        originalSentence: subtitleMap['originalSentence'] ?? originalText,
+        translatedSentence: subtitleMap['translatedSentence'] ?? originalText,
+        originalLang:
+            subtitleMap['originalLang'] ?? sourceLanguageCode.toUpperCase(),
+        targetLang:
+            subtitleMap['targetLang'] ?? targetLanguageCode.toUpperCase(),
+      );
+
+      _socketService.sendLiveSubtitle(
+        to: _activeCallContact!.id,
+        subtitlePayload: subtitleMap,
+      );
       notifyListeners();
+    }
+
+    unawaited(pushSubtitle(0));
+    int index = 0;
+    _subtitleTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      index += 1;
+      unawaited(pushSubtitle(index));
     });
   }
 

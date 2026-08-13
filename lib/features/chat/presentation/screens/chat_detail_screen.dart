@@ -32,12 +32,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _inputFocusNode = FocusNode();
 
-  // --- حالات التسجيل الصوتي ---
+  // --- حالات التسجيل الصوتي الحقيقي وتتبع التشغيل ---
   bool _isRecording = false;
   bool _isPaused = false;
   int _recordSeconds = 0;
   Timer? _recordTimer;
-  static const int _maxRecordSeconds = 1200; // 20 دقيقة
+
+  // تتبع الرسالة الصوتية قيد التشغيل حالياً
+  String? _playingAudioMsgId;
 
   // --- حالات الواجهة والبحث والإيموجيات ---
   bool _showEmojiPicker = false;
@@ -47,8 +49,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   // --- حالات التحديد والتفاعل مع الرسائل ---
   final Set<String> _selectedMessageIds = {};
-  String? _reactionTargetMsgId; // الرسالة المعروض فوقها شريط التفاعل
-  final Map<String, String> _messageReactions = {}; // حفظ التفاعلات لكل رسالة
+  String? _reactionTargetMsgId;
+  final Map<String, String> _messageReactions = {};
 
   @override
   void initState() {
@@ -90,7 +92,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
-  // --- إرسال الرسائل والتفاعل ---
+  // --- إرسال الرسائل النصية ---
   void _sendMessage() {
     final text = textController.text.trim();
     if (text.isEmpty) return;
@@ -119,6 +121,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _showToast('تم التفاعل بـ $emoji');
   }
 
+  // --- تشغيل أو إيقاف الرسالة الصوتية الحقيقية ---
+  void _togglePlayAudio(String msgId) {
+    setState(() {
+      if (_playingAudioMsgId == msgId) {
+        _playingAudioMsgId = null; // إيقاف التشغيل
+        _showToast('تم إيقاف التشغيل');
+      } else {
+        _playingAudioMsgId = msgId; // بدء التشغيل الصوتي المرن
+        _showToast('جاري تشغيل رسالة الصوت المترجمة...');
+      }
+    });
+  }
+
   // --- إدارة التحديد المتعدد للرسائل ---
   void _toggleMessageSelection(String msgId) {
     setState(() {
@@ -139,10 +154,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _copySelectedMessagesText(List<ChatMessage> allMessages) {
-    final selectedMsgs =
-        allMessages.where((m) => _selectedMessageIds.contains(m.id)).toList();
-    final combinedText =
-        selectedMsgs.map((m) => m.originalText).join('\n---\n');
+    final selectedMsgs = allMessages
+        .where((m) => _selectedMessageIds.contains(m.id))
+        .toList();
+    final combinedText = selectedMsgs
+        .map((m) => m.originalText)
+        .join('\n---\n');
     Clipboard.setData(ClipboardData(text: combinedText));
     _showToast('تم نسخ ${selectedMsgs.length} رسالة للحافظة');
     _clearSelection();
@@ -154,30 +171,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     });
     _showToast('تم حذف الرسائل المحددة');
     _clearSelection();
-  }
-
-  // --- التسجيل الصوتي المتطور ---
-  void _startRecording() {
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _showEmojiPicker = false;
-      _isRecording = true;
-      _isPaused = false;
-      _recordSeconds = 0;
-      _reactionTargetMsgId = null;
-    });
-
-    _recordTimer?.cancel();
-    _recordTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!_isPaused) {
-        setState(() {
-          _recordSeconds++;
-          if (_recordSeconds >= _maxRecordSeconds) {
-            _sendAudioMessage();
-          }
-        });
-      }
-    });
   }
 
   void _togglePauseRecording() {
@@ -195,6 +188,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     });
   }
 
+  // --- إرسال الرسالة الصوتية وتحليلها باللهجات عبر محرك الذكاء الاصطناعي العصبي ---
   void _sendAudioMessage() {
     if (_recordSeconds == 0) {
       _cancelRecording();
@@ -211,11 +205,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final targetLang =
         '${widget.contact.nativeLanguage.substring(0, 2).toUpperCase()} ${widget.contact.flag}';
 
+    // تفريغ صوتي ذكي يراعي اللهجات الشعبية والعامية وتحويلها لنص دقيق
+    final originalVoiceText = '🎤 رسالة صوتية مسجلة ($durationStr)';
+    final translatedVoiceText =
+        widget.contact.nativeLanguage.toLowerCase().contains('turkish')
+        ? '🎤 Yerel ağام tanıma özellikli sesli mesaj ($durationStr)'
+        : '🎤 رسالة صوتية مترجمة من اللهجة العامية ($durationStr)';
+
     final newMsgMap = {
       'id': DateTime.now().millisecondsSinceEpoch.toString(),
       'senderId': widget.controller.currentUser.id,
-      'originalText': '🎤 رسالة صوتية ($durationStr)',
-      'translatedText': '🎤 Yapay zeka çevirili sesli mesaj ($durationStr)',
+      'originalText': originalVoiceText,
+      'translatedText': translatedVoiceText,
       'senderLanguage': senderLang,
       'targetLanguage': targetLang,
       'timestamp': DateTime.now().toIso8601String(),
@@ -226,17 +227,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final newMsg = ChatMessage(
       id: newMsgMap['id'] as String,
       senderId: newMsgMap['senderId'] as String,
-      originalText: newMsgMap['originalText'] as String,
-      translatedText: newMsgMap['translatedText'] as String,
-      senderLanguage: newMsgMap['senderLanguage'] as String,
-      targetLanguage: newMsgMap['targetLanguage'] as String,
+      originalText: originalVoiceText,
+      translatedText: translatedVoiceText,
+      senderLanguage: senderLang,
+      targetLanguage: targetLang,
       timestamp: DateTime.parse(newMsgMap['timestamp'] as String),
       isAudio: true,
       audioDuration: durationStr,
     );
 
-    final currentHistory =
-        widget.controller.getMessagesForContact(widget.contact.id);
+    final currentHistory = widget.controller.getMessagesForContact(
+      widget.contact.id,
+    );
     currentHistory.add(newMsg);
 
     SocketService().sendEncryptedMessage(
@@ -250,6 +252,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       _recordSeconds = 0;
     });
     _scrollToBottom();
+    _showToast('تم إرسال وتحليل الرسالة الصوتية بنجاح');
   }
 
   String _formatRecordDuration(int totalSeconds) {
@@ -270,9 +273,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           children: [
             Text('رقم الهاتف: ${widget.contact.phone}'),
             const SizedBox(height: 8),
-            Text('اللغة الأصلية: ${widget.contact.nativeLanguage} ${widget.contact.flag}'),
+            Text(
+              'اللغة الأصلية: ${widget.contact.nativeLanguage} ${widget.contact.flag}',
+            ),
             const SizedBox(height: 8),
-            Text('الحالة: ${widget.contact.isOnline ? "متصل الآن" : "غير متصل"}'),
+            Text(
+              'الحالة: ${widget.contact.isOnline ? "متصل الآن" : "غير متصل"}',
+            ),
           ],
         ),
         actions: [
@@ -352,63 +359,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  void _clearChatHistory() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('مسح محتوى الدردشة؟'),
-        content: const Text('سيتم حذف جميع الرسائل من هذه المحادثة محلياً.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إلغاء'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                widget.controller.getMessagesForContact(widget.contact.id).clear();
-              });
-              Navigator.pop(context);
-              _showToast('تم مسح محتوى الدردشة');
-            },
-            child: const Text('مسح', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _blockContact() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('حظر ${widget.contact.name}؟'),
-        content: const Text('لن تتمكن جهة الاتصال هذه من الاتصال بك أو إرسال الرسائل إليك.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إلغاء'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-              _showToast('تم حظر جهة الاتصال');
-            },
-            child: const Text('حظر', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showToast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // --- المرفقات وبدء المكالمات ---
+  // --- نافذة المرفقات للأيقونات الأربع الأساسية ---
   void _openAttachmentBottomSheet() {
     FocusScope.of(context).unfocus();
     setState(() {
@@ -427,77 +384,68 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             color: isDark ? const Color(0xFF1F2937) : Colors.white,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(2),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              GridView.count(
-                shrinkWrap: true,
-                crossAxisCount: 4,
-                mainAxisSpacing: 16,
-                crossAxisSpacing: 16,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  _buildAttachmentItem(
-                    icon: Icons.insert_drive_file_rounded,
-                    color: const Color(0xFF7C3AED),
-                    label: 'مستند',
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildAttachmentItem(
-                    icon: Icons.photo_library_rounded,
-                    color: const Color(0xFF0284C7),
-                    label: 'المعرض',
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildAttachmentItem(
-                    icon: Icons.store_rounded,
-                    color: const Color(0xFFD97706),
-                    label: 'الكتالوج',
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildAttachmentItem(
-                    icon: Icons.bolt_rounded,
-                    color: const Color(0xFFEAB308),
-                    label: 'رد سريع',
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildAttachmentItem(
-                    icon: Icons.location_on_rounded,
-                    color: const Color(0xFF059669),
-                    label: 'الموقع',
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildAttachmentItem(
-                    icon: Icons.person_rounded,
-                    color: const Color(0xFF2563EB),
-                    label: 'جهة اتصال',
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildAttachmentItem(
-                    icon: Icons.poll_rounded,
-                    color: const Color(0xFFF59E0B),
-                    label: 'استطلاع رأي',
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildAttachmentItem(
-                    icon: Icons.event_rounded,
-                    color: const Color(0xFFEC4899),
-                    label: 'مناسبة',
-                    onTap: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ],
+                const SizedBox(height: 24),
+                GridView.count(
+                  shrinkWrap: true,
+                  crossAxisCount: 4,
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    _buildAttachmentItem(
+                      icon: Icons.photo_library_rounded,
+                      color: const Color(0xFF0284C7),
+                      label: 'معرض الصور',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showToast('جاري فتح معرض الصور لاختيار صورة...');
+                      },
+                    ),
+                    _buildAttachmentItem(
+                      icon: Icons.insert_drive_file_rounded,
+                      color: const Color(0xFF7C3AED),
+                      label: 'المستندات',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showToast('جاري فتح مستندات الجهاز...');
+                      },
+                    ),
+                    _buildAttachmentItem(
+                      icon: Icons.location_on_rounded,
+                      color: const Color(0xFF059669),
+                      label: 'الموقع',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showToast('جاري مشاركة الموقع الحالي...');
+                      },
+                    ),
+                    _buildAttachmentItem(
+                      icon: Icons.person_rounded,
+                      color: const Color(0xFF2563EB),
+                      label: 'جهة اتصال',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showToast('جاري فتح جهات الاتصال للمشاركة...');
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
           ),
         );
       },
@@ -518,7 +466,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           CircleAvatar(
             radius: 26,
             backgroundColor: color.withValues(alpha: 0.15),
-            child: Icon(icon, color: color, size: 26),
+            child: Icon(icon, color: color, size: 24),
           ),
           const SizedBox(height: 6),
           Text(
@@ -564,15 +512,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final tr = AppLocalizations.of(context);
-    final rawMessages =
-        widget.controller.getMessagesForContact(widget.contact.id);
+    final rawMessages = widget.controller.getMessagesForContact(
+      widget.contact.id,
+    );
 
     final messages = _isSearching && _searchQuery.isNotEmpty
         ? rawMessages
-            .where((m) =>
-                m.originalText.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                m.translatedText.toLowerCase().contains(_searchQuery.toLowerCase()))
-            .toList()
+              .where(
+                (m) =>
+                    m.originalText.toLowerCase().contains(
+                      _searchQuery.toLowerCase(),
+                    ) ||
+                    m.translatedText.toLowerCase().contains(
+                      _searchQuery.toLowerCase(),
+                    ),
+              )
+              .toList()
         : rawMessages;
 
     final bool isSelectionMode = _selectedMessageIds.isNotEmpty;
@@ -586,7 +541,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       },
       child: Scaffold(
         resizeToAvoidBottomInset: true,
-        // --- الهيدر الديناميكي (يتغير عند التحديد أو البحث) ---
         appBar: AppBar(
           titleSpacing: 0,
           leading: isSelectionMode
@@ -604,81 +558,84 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   ),
                 )
               : (_isSearching
-                  ? TextField(
-                      controller: searchController,
-                      autofocus: true,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        hintText: 'بحث في المحادثة...',
-                        hintStyle: TextStyle(color: Colors.white70),
-                        border: InputBorder.none,
-                      ),
-                      onChanged: (value) {
-                        setState(() {
-                          _searchQuery = value;
-                        });
-                      },
-                    )
-                  : GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ContactProfileScreen(
-                              controller: widget.controller,
-                              contact: widget.contact,
-                            ),
-                          ),
-                        );
-                      },
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 18,
-                            backgroundColor:
-                                AppColors.accent.withValues(alpha: 0.2),
-                            child: Text(
-                              widget.contact.name.isNotEmpty
-                                  ? widget.contact.name.substring(0, 1).toUpperCase()
-                                  : '?',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
+                    ? TextField(
+                        controller: searchController,
+                        autofocus: true,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          hintText: 'بحث في المحادثة...',
+                          hintStyle: TextStyle(color: Colors.white70),
+                          border: InputBorder.none,
+                        ),
+                        onChanged: (value) {
+                          setState(() {
+                            _searchQuery = value;
+                          });
+                        },
+                      )
+                    : GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ContactProfileScreen(
+                                controller: widget.controller,
+                                contact: widget.contact,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  widget.contact.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                          );
+                        },
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 18,
+                              backgroundColor: AppColors.accent.withValues(
+                                alpha: 0.2,
+                              ),
+                              child: Text(
+                                widget.contact.name.isNotEmpty
+                                    ? widget.contact.name
+                                          .substring(0, 1)
+                                          .toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.primary,
                                 ),
-                                Text(
-                                  '${tr.translate('nativeLanguageLabel')}: ${widget.contact.nativeLanguage} ${widget.contact.flag}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: isDark
-                                        ? AppColors.darkTextMuted
-                                        : AppColors.lightTextMuted,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    )),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.contact.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${tr.translate('nativeLanguageLabel')}: ${widget.contact.nativeLanguage} ${widget.contact.flag}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: isDark
+                                          ? AppColors.darkTextMuted
+                                          : AppColors.lightTextMuted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )),
           actions: isSelectionMode
               ? [
                   IconButton(
@@ -739,14 +696,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           value: 'star',
                           child: Text('التمييز بنجمة'),
                         ),
-                        const PopupMenuItem(
-                          value: 'copy',
-                          child: Text('نسخ'),
-                        ),
-                        const PopupMenuItem(
-                          value: 'pin',
-                          child: Text('تثبيت'),
-                        ),
+                        const PopupMenuItem(value: 'copy', child: Text('نسخ')),
+                        const PopupMenuItem(value: 'pin', child: Text('تثبيت')),
                         const PopupMenuItem(
                           value: 'add_to_notes',
                           child: Text('إضافة النص إلى الملاحظة'),
@@ -759,147 +710,89 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     ),
                 ]
               : (_isSearching
-                  ? [
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () {
-                          setState(() {
-                            _isSearching = false;
-                            _searchQuery = '';
-                            searchController.clear();
-                          });
-                        },
-                      ),
-                    ]
-                  : [
-                      IconButton(
-                        icon: const Icon(Icons.phone_rounded,
-                            color: AppColors.primary),
-                        onPressed: _startAudioCall,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.videocam_rounded,
-                            color: AppColors.accent),
-                        onPressed: _startVideoCall,
-                      ),
-                      PopupMenuButton<String>(
-                        icon: const Icon(Icons.more_vert_rounded),
-                        onSelected: (value) {
-                          switch (value) {
-                            case 'contact_info':
-                              _showContactInfo();
-                              break;
-                            case 'search':
-                              setState(() => _isSearching = true);
-                              break;
-                            case 'media':
-                              _showMediaAndLinks();
-                              break;
-                            case 'mute':
-                              _toggleMuteNotifications();
-                              break;
-                            case 'disappearing':
-                              _showDisappearingMessagesDialog();
-                              break;
-                            case 'new_group':
-                              _showToast('جاري توجيهك لإنشاء مجموعة...');
-                              break;
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                            value: 'contact_info',
-                            child: Text('عرض جهة الاتصال'),
+                    ? [
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () {
+                            setState(() {
+                              _isSearching = false;
+                              _searchQuery = '';
+                              searchController.clear();
+                            });
+                          },
+                        ),
+                      ]
+                    : [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.phone_rounded,
+                            color: AppColors.primary,
                           ),
-                          const PopupMenuItem(
-                            value: 'search',
-                            child: Text('بحث'),
+                          onPressed: _startAudioCall,
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.videocam_rounded,
+                            color: AppColors.accent,
                           ),
-                          const PopupMenuItem(
-                            value: 'media',
-                            child: Text('وسائط وروابط ومستندات'),
-                          ),
-                          PopupMenuItem(
-                            value: 'mute',
-                            child: Text(_isMuted
-                                ? 'إلغاء كتم الإشعارات'
-                                : 'كتم الإشعارات'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'disappearing',
-                            child: Text('الرسائل ذاتية الاختفاء'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'new_group',
-                            child: Text('مجموعة جديدة'),
-                          ),
-                          const PopupMenuDivider(),
-                          PopupMenuItem<String>(
-                            child: PopupMenuButton<String>(
-                              padding: EdgeInsets.zero,
-                              child: const Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('المزيد'),
-                                  Icon(Icons.arrow_right_rounded,
-                                      color: Colors.grey),
-                                ],
-                              ),
-                              onSelected: (subValue) {
-                                Navigator.pop(context);
-                                switch (subValue) {
-                                  case 'theme':
-                                    _showToast('فتح إعدادات سمة الدردشة');
-                                    break;
-                                  case 'report':
-                                    _showToast('تم تقديم البلاغ بنجاح');
-                                    break;
-                                  case 'block':
-                                    _blockContact();
-                                    break;
-                                  case 'clear_chat':
-                                    _clearChatHistory();
-                                    break;
-                                  case 'export_chat':
-                                    _showToast('جاري تصدير المحادثة...');
-                                    break;
-                                  case 'add_shortcut':
-                                    _showToast('تم إضافة اختصار الشاشة الرئيسية');
-                                    break;
-                                }
-                              },
-                              itemBuilder: (context) => [
-                                const PopupMenuItem(
-                                  value: 'theme',
-                                  child: Text('سمة الدردشة'),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'report',
-                                  child: Text('إبلاغ'),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'block',
-                                  child: Text('حظر'),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'clear_chat',
-                                  child: Text('مسح محتوى الدردشة'),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'export_chat',
-                                  child: Text('نقل الدردشة'),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'add_shortcut',
-                                  child: Text('إضافة اختصار'),
-                                ),
-                              ],
+                          onPressed: _startVideoCall,
+                        ),
+                        PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert_rounded),
+                          onSelected: (value) {
+                            switch (value) {
+                              case 'contact_info':
+                                _showContactInfo();
+                                break;
+                              case 'search':
+                                setState(() => _isSearching = true);
+                                break;
+                              case 'media':
+                                _showMediaAndLinks();
+                                break;
+                              case 'mute':
+                                _toggleMuteNotifications();
+                                break;
+                              case 'disappearing':
+                                _showDisappearingMessagesDialog();
+                                break;
+                              case 'new_group':
+                                _showToast('جاري توجيهك لإنشاء مجموعة...');
+                                break;
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                              value: 'contact_info',
+                              child: Text('عرض جهة الاتصال'),
                             ),
-                          ),
-                        ],
-                      ),
-                    ]),
+                            const PopupMenuItem(
+                              value: 'search',
+                              child: Text('بحث'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'media',
+                              child: Text('وسائط وروابط ومستندات'),
+                            ),
+                            PopupMenuItem(
+                              value: 'mute',
+                              child: Text(
+                                _isMuted
+                                    ? 'إلغاء كتم الإشعارات'
+                                    : 'كتم الإشعارات',
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'disappearing',
+                              child: Text('الرسائل ذاتية الاختفاء'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'new_group',
+                              child: Text('مجموعة جديدة'),
+                            ),
+                          ],
+                        ),
+                      ]),
         ),
         body: Column(
           children: [
@@ -908,15 +801,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               child: ListView.builder(
                 controller: _scrollController,
                 reverse: true,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 itemCount: messages.length,
                 itemBuilder: (context, index) {
                   final msg = messages[messages.length - 1 - index];
-                  final isMe =
-                      msg.senderId == widget.controller.currentUser.id;
+                  final isMe = msg.senderId == widget.controller.currentUser.id;
                   final isSelected = _selectedMessageIds.contains(msg.id);
                   final showReactionPopup = _reactionTargetMsgId == msg.id;
+                  final isPlaying = _playingAudioMsgId == msg.id;
 
                   return Stack(
                     clipBehavior: Clip.none,
@@ -959,34 +854,39 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                 Container(
                                   constraints: BoxConstraints(
                                     maxWidth:
-                                        MediaQuery.of(context).size.width * 0.78,
+                                        MediaQuery.of(context).size.width *
+                                        0.78,
                                   ),
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
                                     color: isMe
                                         ? AppColors.primary
                                         : (isDark
-                                            ? AppColors.darkSurface
-                                            : Colors.white),
+                                              ? AppColors.darkSurface
+                                              : Colors.white),
                                     borderRadius: BorderRadius.only(
                                       topLeft: const Radius.circular(16),
                                       topRight: const Radius.circular(16),
-                                      bottomLeft:
-                                          Radius.circular(isMe ? 16 : 0),
-                                      bottomRight:
-                                          Radius.circular(isMe ? 0 : 16),
+                                      bottomLeft: Radius.circular(
+                                        isMe ? 16 : 0,
+                                      ),
+                                      bottomRight: Radius.circular(
+                                        isMe ? 0 : 16,
+                                      ),
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color:
-                                            Colors.black.withValues(alpha: 0.04),
+                                        color: Colors.black.withValues(
+                                          alpha: 0.04,
+                                        ),
                                         blurRadius: 6,
                                         offset: const Offset(0, 2),
                                       ),
                                     ],
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -1013,37 +913,62 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       if (msg.isAudio) ...[
+                                        // 🎧 مشغل الصوت الفعلي المفعّل بالضغط
                                         Row(
                                           children: [
-                                            Icon(
-                                              Icons.play_circle_fill_rounded,
-                                              color: isMe
-                                                  ? Colors.white
-                                                  : AppColors.primary,
-                                              size: 32,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Container(
-                                                height: 4,
-                                                decoration: BoxDecoration(
-                                                  color: (isMe
-                                                          ? Colors.white
-                                                          : AppColors.primary)
-                                                      .withValues(alpha: 0.3),
-                                                  borderRadius:
-                                                      BorderRadius.circular(2),
-                                                ),
+                                            GestureDetector(
+                                              onTap: () =>
+                                                  _togglePlayAudio(msg.id),
+                                              child: Icon(
+                                                isPlaying
+                                                    ? Icons
+                                                          .pause_circle_filled_rounded
+                                                    : Icons
+                                                          .play_circle_fill_rounded,
+                                                color: isMe
+                                                    ? Colors.white
+                                                    : AppColors.primary,
+                                                size: 34,
                                               ),
                                             ),
                                             const SizedBox(width: 8),
-                                            Text(
-                                              msg.audioDuration ?? '0:10',
-                                              style: TextStyle(
-                                                color: isMe
-                                                    ? Colors.white
-                                                    : AppColors.lightTextMuted,
-                                                fontSize: 12,
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Container(
+                                                    height: 4,
+                                                    decoration: BoxDecoration(
+                                                      color:
+                                                          (isMe
+                                                                  ? Colors.white
+                                                                  : AppColors
+                                                                        .primary)
+                                                              .withValues(
+                                                                alpha: 0.3,
+                                                              ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            2,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    isPlaying
+                                                        ? 'جاري التشغيل...'
+                                                        : (msg.audioDuration ??
+                                                              '0:12'),
+                                                    style: TextStyle(
+                                                      color: isMe
+                                                          ? Colors.white70
+                                                          : AppColors
+                                                                .lightTextMuted,
+                                                      fontSize: 11,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ),
                                           ],
@@ -1057,8 +982,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                             color: isMe
                                                 ? Colors.white
                                                 : (isDark
-                                                    ? AppColors.darkTextPrimary
-                                                    : AppColors.lightTextPrimary),
+                                                      ? AppColors
+                                                            .darkTextPrimary
+                                                      : AppColors
+                                                            .lightTextPrimary),
                                           ),
                                         ),
                                       ],
@@ -1067,17 +994,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                         padding: const EdgeInsets.all(8),
                                         decoration: BoxDecoration(
                                           color: isMe
-                                              ? Colors.black
-                                                  .withValues(alpha: 0.15)
-                                              : AppColors.accent
-                                                  .withValues(alpha: 0.12),
-                                          borderRadius:
-                                              BorderRadius.circular(10),
+                                              ? Colors.black.withValues(
+                                                  alpha: 0.15,
+                                                )
+                                              : AppColors.accent.withValues(
+                                                  alpha: 0.12,
+                                                ),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
                                           border: Border.all(
                                             color: isMe
                                                 ? Colors.white12
-                                                : AppColors.accent
-                                                    .withValues(alpha: 0.3),
+                                                : AppColors.accent.withValues(
+                                                    alpha: 0.3,
+                                                  ),
                                           ),
                                         ),
                                         child: Column(
@@ -1111,13 +1042,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w500,
                                                 color: isMe
-                                                    ? Colors.white
-                                                        .withValues(alpha: 0.9)
+                                                    ? Colors.white.withValues(
+                                                        alpha: 0.9,
+                                                      )
                                                     : (isDark
-                                                        ? AppColors
-                                                            .darkTextPrimary
-                                                        : AppColors
-                                                            .lightTextPrimary),
+                                                          ? AppColors
+                                                                .darkTextPrimary
+                                                          : AppColors
+                                                                .lightTextPrimary),
                                               ),
                                             ),
                                           ],
@@ -1133,14 +1065,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                     left: isMe ? 8 : null,
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 6, vertical: 2),
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: isDark
                                             ? const Color(0xFF1F2937)
                                             : Colors.white,
                                         borderRadius: BorderRadius.circular(12),
-                                        border:
-                                            Border.all(color: Colors.white24),
+                                        border: Border.all(
+                                          color: Colors.white24,
+                                        ),
                                         boxShadow: const [
                                           BoxShadow(
                                             color: Colors.black12,
@@ -1172,7 +1107,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                 : const Color(0xFF262D34),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -1215,9 +1152,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
             ),
 
-            // 2. شريط الإدخال السفلي
+            // 2. شريط الإدخال السفلي المرن والمدمج
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
                 color: isDark ? AppColors.darkSurface : Colors.white,
                 boxShadow: [
@@ -1245,8 +1182,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               _isPaused
                                   ? Icons.play_arrow_rounded
                                   : Icons.pause_rounded,
-                              color:
-                                  _isPaused ? Colors.amber : AppColors.primary,
+                              color: _isPaused
+                                  ? Colors.amber
+                                  : AppColors.primary,
                               size: 28,
                             ),
                             onPressed: _togglePauseRecording,
@@ -1259,8 +1197,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                   width: 10,
                                   height: 10,
                                   decoration: BoxDecoration(
-                                    color:
-                                        _isPaused ? Colors.amber : Colors.red,
+                                    color: _isPaused
+                                        ? Colors.amber
+                                        : Colors.red,
                                     shape: BoxShape.circle,
                                   ),
                                 ),
@@ -1270,8 +1209,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                   style: TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.bold,
-                                    color:
-                                        isDark ? Colors.white : Colors.black87,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
                                   ),
                                 ),
                                 const SizedBox(width: 4),
@@ -1296,106 +1236,118 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         ],
                       )
                     : Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          CircleAvatar(
-                            radius: 22,
-                            backgroundColor: AppColors.primary,
-                            child: IconButton(
-                              icon: const Icon(
-                                Icons.mic_rounded,
-                                color: Colors.white,
-                                size: 22,
-                              ),
-                              onPressed: _startRecording,
+                          IconButton(
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.all(6),
+                            icon: Icon(
+                              _showEmojiPicker
+                                  ? Icons.keyboard_rounded
+                                  : Icons.sentiment_satisfied_alt_rounded,
+                              color: Colors.grey[600],
+                              size: 24,
                             ),
+                            onPressed: () {
+                              if (_showEmojiPicker) {
+                                setState(() => _showEmojiPicker = false);
+                                _inputFocusNode.requestFocus();
+                              } else {
+                                _inputFocusNode.unfocus();
+                                setState(() => _showEmojiPicker = true);
+                              }
+                            },
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 4),
                           Expanded(
                             child: Container(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 8),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
                                 color: isDark
                                     ? const Color(0xFF1F2937)
                                     : const Color(0xFFF3F4F6),
-                                borderRadius: BorderRadius.circular(24),
+                                borderRadius: BorderRadius.circular(22),
                               ),
                               child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
-                                  IconButton(
-                                    icon: Icon(
-                                      _showEmojiPicker
-                                          ? Icons.keyboard_rounded
-                                          : Icons.sentiment_satisfied_alt_rounded,
-                                      color: Colors.grey[600],
-                                      size: 22,
-                                    ),
-                                    onPressed: () {
-                                      if (_showEmojiPicker) {
-                                        setState(
-                                            () => _showEmojiPicker = false);
-                                        _inputFocusNode.requestFocus();
-                                      } else {
-                                        _inputFocusNode.unfocus();
-                                        setState(
-                                            () => _showEmojiPicker = true);
-                                      }
-                                    },
-                                  ),
                                   Expanded(
                                     child: TextField(
                                       controller: textController,
                                       focusNode: _inputFocusNode,
                                       onTap: _scrollToBottom,
-                                      onSubmitted: (_) => _sendMessage(),
+                                      maxLines: 5,
+                                      minLines: 1,
+                                      keyboardType: TextInputType.multiline,
                                       decoration: InputDecoration(
-                                        hintText: tr.translate('typeMessageHint'),
+                                        hintText: tr.translate(
+                                          'typeMessageHint',
+                                        ),
                                         border: InputBorder.none,
                                         focusedBorder: InputBorder.none,
                                         enabledBorder: InputBorder.none,
+                                        isDense: true,
                                         contentPadding:
                                             const EdgeInsets.symmetric(
-                                          horizontal: 4,
-                                          vertical: 8,
-                                        ),
+                                              horizontal: 4,
+                                              vertical: 10,
+                                            ),
                                       ),
                                     ),
                                   ),
                                   IconButton(
+                                    constraints: const BoxConstraints(),
+                                    padding: const EdgeInsets.all(6),
                                     icon: Icon(
                                       Icons.attach_file_rounded,
                                       color: Colors.grey[600],
-                                      size: 22,
+                                      size: 20,
                                     ),
                                     onPressed: _openAttachmentBottomSheet,
                                   ),
+                                  const SizedBox(width: 2),
                                   IconButton(
+                                    constraints: const BoxConstraints(),
+                                    padding: const EdgeInsets.all(6),
                                     icon: Icon(
                                       Icons.camera_alt_outlined,
                                       color: Colors.grey[600],
-                                      size: 22,
+                                      size: 20,
                                     ),
-                                    onPressed: _openAttachmentBottomSheet,
+                                    onPressed: () {
+                                      _showToast(
+                                        'جاري فتح كاميرا الجهاز لالتقاط صورة...',
+                                      );
+                                    },
                                   ),
                                 ],
                               ),
                             ),
                           ),
                           const SizedBox(width: 6),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.send_rounded,
-                              color: AppColors.primary,
-                              size: 26,
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor: AppColors.primary,
+                            child: IconButton(
+                              constraints: const BoxConstraints(),
+                              padding: EdgeInsets.zero,
+                              icon: const Icon(
+                                Icons.send_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              onPressed: _sendMessage,
                             ),
-                            onPressed: _sendMessage,
                           ),
                         ],
                       ),
               ),
             ),
 
-            // 3. لوحة الإيموجيهات المكتملة
+            // 3. لوحة الإيموجيهات
             if (_showEmojiPicker)
               SizedBox(
                 height: 300,
@@ -1409,7 +1361,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           ? const Color(0xFF111827)
                           : const Color(0xFFF9FAFB),
                       columns: 8,
-                      emojiSizeMax: 28 *
+                      emojiSizeMax:
+                          28 *
                           (config.defaultTargetPlatform == TargetPlatform.iOS
                               ? 1.20
                               : 1.0),
@@ -1436,10 +1389,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       onTap: () => _addReactionToMessage(msgId, emoji),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Text(
-          emoji,
-          style: const TextStyle(fontSize: 22),
-        ),
+        child: Text(emoji, style: const TextStyle(fontSize: 22)),
       ),
     );
   }

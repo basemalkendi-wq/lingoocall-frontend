@@ -7,7 +7,7 @@ class SocketService {
   factory SocketService() => _instance;
   SocketService._internal();
 
-  late io.Socket _socket;
+  io.Socket? _socket;
   bool _isConnected = false;
   String? _currentUserId; // تخزين معرّف أو رقم هاتف المستخدم الحالي
 
@@ -23,6 +23,7 @@ class SocketService {
 
     final String serverUrl = 'https://lingoocall-backend.onrender.com';
 
+    _socket?.disconnect();
     _socket = io.io(
       serverUrl,
       io.OptionBuilder()
@@ -31,26 +32,26 @@ class SocketService {
           .build(),
     );
 
-    _socket.connect();
+    _socket!.connect();
 
-    _socket.onConnect((_) async {
+    _socket!.onConnect((_) async {
       _isConnected = true;
       if (kDebugMode) {
         print('🔒 [Socket Connected Successfully as: $userId]');
       }
 
       // 1. تسجيل معرّف المستخدم في السيرفر فور الاتصال
-      _socket.emit('register_user', userId);
+      _socket!.emit('register_user', userId);
 
       // 2. جلب FCM Token وإرساله للسيرفر لربط الإشعارات
       await _registerFcmToken(userId);
     });
 
-    _socket.on('user_status_changed', (data) {
+    _socket!.on('user_status_changed', (data) {
       onUserStatusChanged(data);
     });
 
-    _socket.onDisconnect((_) {
+    _socket!.onDisconnect((_) {
       _isConnected = false;
       if (kDebugMode) {
         print('❌ [Socket Disconnected]');
@@ -63,7 +64,7 @@ class SocketService {
     try {
       String? fcmToken = await FirebaseMessaging.instance.getToken();
       if (fcmToken != null) {
-        _socket.emit('register_fcm', {'userId': userId, 'fcmToken': fcmToken});
+        _socket?.emit('register_fcm', {'userId': userId, 'fcmToken': fcmToken});
         if (kDebugMode) {
           print('🚀 [FCM Token Sent to Server]: $fcmToken');
         }
@@ -87,17 +88,17 @@ class SocketService {
       updatedPayload['senderId'] = _currentUserId;
     }
 
-    _socket.emit('send_encrypted_message', {
+    _socket?.emit('send_encrypted_message', {
       'to': to,
       'payload': updatedPayload,
     });
   }
 
   void listenToIncomingMessages(Function(dynamic) onMessageReceived) {
-    _socket.off(
+    _socket?.off(
       'receive_encrypted_message',
     ); // إلغاء الاستماع القديم لتجنب التكرار
-    _socket.on('receive_encrypted_message', (data) {
+    _socket?.on('receive_encrypted_message', (data) {
       onMessageReceived(data);
     });
   }
@@ -107,12 +108,12 @@ class SocketService {
     required String to,
     required Map<String, dynamic> subtitlePayload,
   }) {
-    _socket.emit('send_live_subtitle', {'to': to, 'payload': subtitlePayload});
+    _socket?.emit('send_live_subtitle', {'to': to, 'payload': subtitlePayload});
   }
 
   void listenToLiveSubtitles(Function(dynamic) onSubtitleReceived) {
-    _socket.off('receive_live_subtitle');
-    _socket.on('receive_live_subtitle', (data) {
+    _socket?.off('receive_live_subtitle');
+    _socket?.on('receive_live_subtitle', (data) {
       onSubtitleReceived(data);
     });
   }
@@ -123,7 +124,7 @@ class SocketService {
     required dynamic offer,
     String? from,
   }) {
-    _socket.emit('call_offer', {
+    _socket?.emit('call_offer', {
       'to': to,
       'offer': offer,
       'from': from ?? _currentUserId,
@@ -131,15 +132,15 @@ class SocketService {
   }
 
   void sendCallAnswer({required String to, required dynamic answer}) {
-    _socket.emit('call_answer', {'to': to, 'answer': answer});
+    _socket?.emit('call_answer', {'to': to, 'answer': answer});
   }
 
   void sendIceCandidate({required String to, required dynamic candidate}) {
-    _socket.emit('ice_candidate', {'to': to, 'candidate': candidate});
+    _socket?.emit('ice_candidate', {'to': to, 'candidate': candidate});
   }
 
   void sendCallRejected({required String to}) {
-    _socket.emit('call_rejected', {'to': to});
+    _socket?.emit('call_rejected', {'to': to});
   }
 
   void rejectCall({required String to}) {
@@ -148,26 +149,27 @@ class SocketService {
 
   // --- الاستماع لأحداث وإشارات المكالمات ---
   void listenToIncomingCall(Function(dynamic) onIncomingCall) {
-    _socket.off('incoming_call');
-    _socket.on('incoming_call', (data) => onIncomingCall(data));
+    _socket?.off('incoming_call');
+    _socket?.on('incoming_call', (data) => onIncomingCall(data));
   }
 
   void listenToCallAccepted(Function(dynamic) onCallAccepted) {
-    _socket.off('call_accepted');
-    _socket.on('call_accepted', (data) => onCallAccepted(data));
+    _socket?.off('call_accepted');
+    _socket?.on('call_accepted', (data) => onCallAccepted(data));
   }
 
   void listenToIceCandidate(Function(dynamic) onIceCandidate) {
-    _socket.off('ice_candidate');
-    _socket.on('ice_candidate', (data) => onIceCandidate(data));
+    _socket?.off('ice_candidate');
+    _socket?.on('ice_candidate', (data) => onIceCandidate(data));
   }
 
   void listenToCallRejected(Function(dynamic) onCallRejected) {
-    _socket.off('call_rejected');
-    _socket.on('call_rejected', (data) => onCallRejected(data));
+    _socket?.off('call_rejected');
+    _socket?.on('call_rejected', (data) => onCallRejected(data));
   }
 
   void disconnect() {
-    _socket.disconnect();
+    _socket?.disconnect();
+    _isConnected = false;
   }
 }

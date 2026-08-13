@@ -1,6 +1,7 @@
 class AppConstants {
   static const String appName = 'LingooCall';
   static const String tagLine = 'Break Language Barriers in Real-Time';
+  static const String backendBaseUrl = 'https://lingoocall-backend.onrender.com';
   
   static const List<Map<String, String>> supportedLanguages = [
     {'code': 'AR', 'name': 'Arabic', 'flag': '🇾🇪', 'native': 'العربية'},

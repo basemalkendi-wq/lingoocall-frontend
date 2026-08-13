@@ -6,15 +6,16 @@ enum PhoneNumberPrivacy {
 
 class UserProfile {
   final String id;
-  final String name;
-  final String username;
+  String name;
+  String username;
+  String email;
   final String phone;
-  final String nativeLanguage;
-  final String nativeFlag;
-  final String targetLanguage;
-  final String targetFlag;
-  final String avatarUrl;
-  final String bio;
+  String nativeLanguage;
+  String nativeFlag;
+  String targetLanguage;
+  String targetFlag;
+  String avatarUrl;
+  String bio;
   int followersCount;
   int followingCount;
   bool isFollowing;
@@ -23,6 +24,7 @@ class UserProfile {
   UserProfile({
     required this.id,
     required this.name,
+    this.email = '',
     required this.phone,
     required this.nativeLanguage,
     required this.nativeFlag,
@@ -37,10 +39,61 @@ class UserProfile {
     this.phonePrivacy = PhoneNumberPrivacy.nobody,
   });
 
+  // تحويل البيانات إلى خريطة (JSON) لحفظها في قاعدة البيانات أو التخزين المحلي
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'username': username,
+      'email': email,
+      'phone': phone,
+      'nativeLanguage': nativeLanguage,
+      'nativeFlag': nativeFlag,
+      'targetLanguage': targetLanguage,
+      'targetFlag': targetFlag,
+      'avatarUrl': avatarUrl,
+      'bio': bio,
+      'followersCount': followersCount,
+      'followingCount': followingCount,
+      'isFollowing': isFollowing,
+      'phonePrivacy': phonePrivacy.index,
+    };
+  }
+
+  // بناء كائن UserProfile من البيانات القادمة من السيرفر أو قاعدة البيانات (JSON)
+  factory UserProfile.fromJson(Map<String, dynamic> json) {
+    final rawPrivacy = json['phonePrivacy'];
+    final phonePrivacyIndex = rawPrivacy is int
+        ? rawPrivacy
+        : int.tryParse(rawPrivacy?.toString() ?? '') ?? PhoneNumberPrivacy.nobody.index;
+
+    return UserProfile(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      username: json['username']?.toString() ?? '',
+      email: json['email']?.toString() ?? '',
+      phone: json['phone']?.toString() ?? '',
+      nativeLanguage: json['nativeLanguage']?.toString() ?? 'Arabic',
+      nativeFlag: json['nativeFlag']?.toString() ?? '🇾🇪',
+      targetLanguage: json['targetLanguage']?.toString() ?? 'Turkish',
+      targetFlag: json['targetFlag']?.toString() ?? '🇹🇷',
+      avatarUrl: json['avatarUrl']?.toString() ?? '',
+      bio: json['bio']?.toString() ?? '',
+      followersCount: json['followersCount'] ?? 0,
+      followingCount: json['followingCount'] ?? 0,
+      isFollowing: json['isFollowing'] ?? false,
+      phonePrivacy: PhoneNumberPrivacy.values[
+        phonePrivacyIndex.clamp(0, PhoneNumberPrivacy.values.length - 1).toInt()
+      ],
+    );
+  }
+
+  // إنشاء نسخة معدلة من الكائن
   UserProfile copyWith({
     String? id,
     String? name,
     String? username,
+    String? email,
     String? phone,
     String? nativeLanguage,
     String? nativeFlag,
@@ -57,6 +110,7 @@ class UserProfile {
       id: id ?? this.id,
       name: name ?? this.name,
       username: username ?? this.username,
+      email: email ?? this.email,
       phone: phone ?? this.phone,
       nativeLanguage: nativeLanguage ?? this.nativeLanguage,
       nativeFlag: nativeFlag ?? this.nativeFlag,

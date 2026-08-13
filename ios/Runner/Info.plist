@@ -46,6 +46,9 @@
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
 
+    <key>NSContactsUsageDescription</key>
+    <string>LingooCall needs access to your contacts to show only registered users and start chats with people already on the network.</string>
+
     <!-- تفعيل استقبال إشعارات APNs في الخلفية لـ iOS -->
     <key>UIBackgroundModes</key>
     <array>

@@ -7,24 +7,72 @@ class TranslationService {
   factory TranslationService() => _instance;
   TranslationService._internal();
 
-  // رابط السيرفر الخاص بـ LingooCall للترجمة أو مفتاح خدمة الترجمة
   final String _baseUrl = 'https://lingoocall-backend.onrender.com/api';
 
-  /// 1. ترجمة النصوص الفورية للرسائل النصية
+  String normalizeDialectText({
+    required String text,
+    required String sourceLanguageCode,
+    required String targetLanguageCode,
+  }) {
+    if (text.trim().isEmpty) return text;
+
+    String normalized = text.trim();
+    final sourceLower = sourceLanguageCode.toLowerCase();
+    final targetLower = targetLanguageCode.toLowerCase();
+
+    if (sourceLower == 'ar' || sourceLower == 'auto') {
+      normalized = normalized
+          .replaceAll(RegExp(r'\bشو\b', caseSensitive: false), 'ما')
+          .replaceAll(RegExp(r'\bشخبار\b', caseSensitive: false), 'ما الأخبار')
+          .replaceAll(RegExp(r'\bالح\b', caseSensitive: false), 'ال')
+          .replaceAll(RegExp(r'\bيلا\b', caseSensitive: false), 'هيا')
+          .replaceAll(RegExp(r'\bعايز\b', caseSensitive: false), 'أريد')
+          .replaceAll(RegExp(r'\bاى\b', caseSensitive: false), 'هل');
+    }
+
+    if (sourceLower == 'tr' || sourceLower == 'auto') {
+      normalized = normalized
+          .replaceAll('yapıyo', 'yapıyor')
+          .replaceAll('Yapıyo', 'Yapıyor')
+          .replaceAll('yapıyon', 'yapıyorsun')
+          .replaceAll('Yapıyon', 'Yapıyorsun')
+          .replaceAll('şu an', 'şimdi')
+          .replaceAll('Şu an', 'Şimdi')
+          .replaceAll('nasıl gidiyo', 'nasıl gidiyor')
+          .replaceAll('Nasıl gidiyo', 'Nasıl gidiyor')
+          .replaceAll('ne diyosun', 'ne diyorsun')
+          .replaceAll('Ne diyosun', 'Ne diyorsun');
+    }
+
+    if (targetLower == 'ar') {
+      normalized = normalized.replaceAll(
+        RegExp(r'\bhello\b', caseSensitive: false),
+        'مرحباً',
+      );
+    }
+
+    return normalized;
+  }
+
   Future<String> translateText({
     required String text,
-    required String targetLanguageCode, // مثال: 'ar', 'tr', 'en', 'fr'
+    required String targetLanguageCode,
     String sourceLanguageCode = 'auto',
   }) async {
     if (text.trim().isEmpty) return text;
 
+    final normalizedText = normalizeDialectText(
+      text: text,
+      sourceLanguageCode: sourceLanguageCode,
+      targetLanguageCode: targetLanguageCode,
+    );
+
     try {
-      // إرسال طلب الترجمة للباك إند الخاص بالتطبيق
       final response = await http.post(
         Uri.parse('$_baseUrl/translate'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'text': text,
+          'text': normalizedText,
           'target_lang': targetLanguageCode,
           'source_lang': sourceLanguageCode,
         }),
@@ -33,19 +81,43 @@ class TranslationService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['translated_text'] ?? text;
-      } else {
-        // خيار احتياطي (Fallback) في حال تعذر الوصول للسيرفر محلياً
-        return _fallbackTranslate(text, targetLanguageCode);
       }
+      return _fallbackTranslate(normalizedText, targetLanguageCode);
     } catch (e) {
       if (kDebugMode) {
         print('⚠️ [TranslationService Error]: $e');
       }
-      return _fallbackTranslate(text, targetLanguageCode);
+      return _fallbackTranslate(normalizedText, targetLanguageCode);
     }
   }
 
-  /// 2. تحويل الصوت المباشر إلى نص مصلح ومترجم (Real-time Speech-to-Text & Translation)
+  Future<Map<String, String>> translateLiveSubtitle({
+    required String speakerName,
+    required String originalSentence,
+    required String sourceLanguageCode,
+    required String targetLanguageCode,
+  }) async {
+    final normalizedOriginal = normalizeDialectText(
+      text: originalSentence,
+      sourceLanguageCode: sourceLanguageCode,
+      targetLanguageCode: targetLanguageCode,
+    );
+
+    final translatedText = await translateText(
+      text: normalizedOriginal,
+      targetLanguageCode: targetLanguageCode,
+      sourceLanguageCode: sourceLanguageCode,
+    );
+
+    return {
+      'speakerName': speakerName,
+      'originalSentence': normalizedOriginal,
+      'translatedSentence': translatedText,
+      'originalLang': sourceLanguageCode.toUpperCase(),
+      'targetLang': targetLanguageCode.toUpperCase(),
+    };
+  }
+
   Future<Map<String, String>> processLiveAudioChunk({
     required List<int> audioBytes,
     required String targetLang,
@@ -72,7 +144,6 @@ class TranslationService {
     return {'original': '', 'translated': ''};
   }
 
-  /// دالة احتياطية مجانية لترجمة النصوص (تضمن عمل التطبيق حتى بدون سيرفر)
   Future<String> _fallbackTranslate(String text, String targetLang) async {
     try {
       final url = Uri.parse(
