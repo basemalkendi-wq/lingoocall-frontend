@@ -133,23 +133,45 @@ class AppController extends ChangeNotifier {
     );
 
     _socketService.listenToIncomingMessages((data) {
+      final payload = Map<String, dynamic>.from(data as Map);
+      final senderId = (payload['senderId'] ?? '').toString();
+      final receiverId = (payload['receiverId'] ?? '').toString();
+      final chatKey = senderId == _currentUser.id ? receiverId : senderId;
+
+      if (chatKey.isEmpty) {
+        return;
+      }
+
+      final timestampValue = payload['timestamp'];
+      DateTime parsedTime;
+      if (timestampValue is int) {
+        parsedTime = DateTime.fromMillisecondsSinceEpoch(timestampValue);
+      } else if (timestampValue is String) {
+        parsedTime = DateTime.tryParse(timestampValue) ?? DateTime.now();
+      } else {
+        parsedTime = DateTime.now();
+      }
+
       final incomingMsg = ChatMessage(
-        id: data['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        senderId: data['senderId'] ?? 'unknown',
-        originalText: data['originalText'] ?? '',
-        translatedText: data['translatedText'] ?? '',
-        senderLanguage: data['senderLanguage'] ?? 'TR 🇹🇷',
-        targetLanguage: data['targetLanguage'] ?? 'AR 🇾🇪',
-        timestamp: data['timestamp'] != null
-            ? DateTime.parse(data['timestamp'])
-            : DateTime.now(),
+        id:
+            payload['id']?.toString() ??
+            DateTime.now().millisecondsSinceEpoch.toString(),
+        senderId: senderId.isNotEmpty ? senderId : 'unknown',
+        originalText: payload['originalText']?.toString() ?? '',
+        translatedText: payload['translatedText']?.toString() ?? '',
+        senderLanguage: payload['senderLanguage']?.toString() ?? 'TR 🇹🇷',
+        targetLanguage: payload['targetLanguage']?.toString() ?? 'AR 🇾🇪',
+        timestamp: parsedTime,
       );
 
-      final senderId = incomingMsg.senderId;
-      if (!_chatHistory.containsKey(senderId)) {
-        _chatHistory[senderId] = [];
+      if (!_chatHistory.containsKey(chatKey)) {
+        _chatHistory[chatKey] = [];
       }
-      _chatHistory[senderId]!.add(incomingMsg);
+      if (!_chatHistory[chatKey]!.any(
+        (message) => message.id == incomingMsg.id,
+      )) {
+        _chatHistory[chatKey]!.add(incomingMsg);
+      }
       notifyListeners();
     });
 

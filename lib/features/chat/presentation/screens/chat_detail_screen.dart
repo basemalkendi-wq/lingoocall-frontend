@@ -98,16 +98,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (text.isEmpty) return;
 
     widget.controller.sendMessage(text);
-
-    SocketService().sendEncryptedMessage(
-      to: widget.contact.id,
-      payload: {
-        'id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'originalText': text,
-        'targetLanguage': widget.contact.nativeLanguage,
-      },
-    );
-
     textController.clear();
     setState(() {});
     _scrollToBottom();

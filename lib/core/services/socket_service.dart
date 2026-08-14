@@ -84,12 +84,19 @@ class SocketService {
     required String to,
     required Map<String, dynamic> payload,
   }) {
+    if (_socket == null || !_isConnected) {
+      if (kDebugMode) {
+        print('⚠️ Socket not connected, message not sent to $to');
+      }
+      return;
+    }
+
     final updatedPayload = Map<String, dynamic>.from(payload);
 
-    // إرفاق معرّف المرسل الحقيقي مع حمولة الرسالة
     if (_currentUserId != null) {
       updatedPayload['senderId'] = _currentUserId;
     }
+    updatedPayload['receiverId'] = to;
 
     _socket?.emit('send_encrypted_message', {
       'to': to,
@@ -98,11 +105,11 @@ class SocketService {
   }
 
   void listenToIncomingMessages(Function(dynamic) onMessageReceived) {
-    _socket?.off(
-      'receive_encrypted_message',
-    ); // إلغاء الاستماع القديم لتجنب التكرار
+    _socket?.off('receive_encrypted_message');
     _socket?.on('receive_encrypted_message', (data) {
-      onMessageReceived(data);
+      if (data is Map) {
+        onMessageReceived(data);
+      }
     });
   }
 
@@ -134,12 +141,28 @@ class SocketService {
     });
   }
 
-  void sendCallAnswer({required String to, required dynamic answer}) {
-    _socket?.emit('call_answer', {'to': to, 'answer': answer});
+  void sendCallAnswer({
+    required String to,
+    required dynamic answer,
+    String? from,
+  }) {
+    _socket?.emit('call_answer', {
+      'to': to,
+      'from': from ?? _currentUserId,
+      'answer': answer,
+    });
   }
 
-  void sendIceCandidate({required String to, required dynamic candidate}) {
-    _socket?.emit('ice_candidate', {'to': to, 'candidate': candidate});
+  void sendIceCandidate({
+    required String to,
+    required dynamic candidate,
+    String? from,
+  }) {
+    _socket?.emit('ice_candidate', {
+      'to': to,
+      'from': from ?? _currentUserId,
+      'candidate': candidate,
+    });
   }
 
   void sendCallRejected({required String to}) {

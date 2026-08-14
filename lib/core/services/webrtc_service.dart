@@ -8,14 +8,10 @@ class WebRTCService {
 
   final SocketService _socketService = SocketService();
 
-  // إعدادات خوادم STUN و TURN لإتاحة الاتصال عبر مختلف الشبكات والجدران النارية
   final Map<String, dynamic> _configuration = {
     'iceServers': [
-      // خوادم STUN المجانية من Google
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
-
-      // خوادم TURN لتمرير الصوت والفيديو
       {
         'urls': 'turn:openrelay.metered.ca:80',
         'username': 'openrelayproject',
@@ -31,7 +27,7 @@ class WebRTCService {
         'username': 'openrelayproject',
         'credential': 'openrelayproject',
       },
-    ]
+    ],
   };
 
   MediaStream? get localStream => _localStream;
@@ -45,7 +41,6 @@ class WebRTCService {
     await remoteRenderer.initialize();
   }
 
-  // فتح الكاميرا والميكروفون المحليين
   Future<MediaStream> openUserMedia(RTCVideoRenderer localVideo) async {
     final Map<String, dynamic> mediaConstraints = {
       'audio': {
@@ -53,9 +48,7 @@ class WebRTCService {
         'noiseSuppression': true,
         'autoGainControl': true,
       },
-      'video': {
-        'facingMode': 'user',
-      }
+      'video': {'facingMode': 'user'},
     };
 
     _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
@@ -63,30 +56,61 @@ class WebRTCService {
     return _localStream!;
   }
 
-  // إنشاء الاتصال وبدء الاتصال بطرف آخر (Offer)
-  Future<void> makeCall(String targetUserId, RTCVideoRenderer remoteRenderer) async {
-    _peerConnection = await createPeerConnection(_configuration);
-
+  Future<void> makeCall(
+    String targetUserId,
+    RTCVideoRenderer remoteRenderer,
+  ) async {
+    _peerConnection ??= await createPeerConnection(_configuration);
     _registerPeerEvents(targetUserId, remoteRenderer);
 
     _localStream?.getTracks().forEach((track) {
       _peerConnection?.addTrack(track, _localStream!);
     });
 
-    RTCSessionDescription offer = await _peerConnection!.createOffer();
+    final offer = await _peerConnection!.createOffer();
     await _peerConnection!.setLocalDescription(offer);
+    _socketService.sendCallOffer(to: targetUserId, offer: offer.toMap());
+  }
 
-    // إرسال العرض عبر سيرفر السوكت
-    _socketService.sendCallOffer(
-      to: targetUserId,
-      offer: offer.toMap(),
+  Future<void> answerCall(
+    String fromUserId,
+    dynamic offer,
+    RTCVideoRenderer remoteRenderer,
+  ) async {
+    _peerConnection ??= await createPeerConnection(_configuration);
+    _registerPeerEvents(fromUserId, remoteRenderer);
+
+    _localStream?.getTracks().forEach((track) {
+      _peerConnection?.addTrack(track, _localStream!);
+    });
+
+    if (offer is Map && offer['sdp'] != null && offer['type'] != null) {
+      await _peerConnection!.setRemoteDescription(
+        RTCSessionDescription(offer['sdp'], offer['type']),
+      );
+    }
+
+    final answer = await _peerConnection!.createAnswer();
+    await _peerConnection!.setLocalDescription(answer);
+    _socketService.sendCallAnswer(to: fromUserId, answer: answer.toMap());
+  }
+
+  Future<void> setRemoteAnswer(dynamic answerData) async {
+    if (_peerConnection == null ||
+        answerData is! Map ||
+        answerData['sdp'] == null) {
+      return;
+    }
+
+    await _peerConnection!.setRemoteDescription(
+      RTCSessionDescription(answerData['sdp'], answerData['type'] ?? 'answer'),
     );
   }
 
-  void _registerPeerEvents(String targetUserId, RTCVideoRenderer remoteRenderer) {
+  void _registerPeerEvents(String peerUserId, RTCVideoRenderer remoteRenderer) {
     _peerConnection?.onIceCandidate = (RTCIceCandidate candidate) {
       _socketService.sendIceCandidate(
-        to: targetUserId,
+        to: peerUserId,
         candidate: candidate.toMap(),
       );
     };
@@ -99,42 +123,28 @@ class WebRTCService {
     };
   }
 
-  // الإجابة على مكالمة قادمة (Answer Call)
-  Future<void> answerCall(String fromUserId, dynamic offer, RTCVideoRenderer remoteRenderer) async {
-    _peerConnection = await createPeerConnection(_configuration);
-
-    _registerPeerEvents(fromUserId, remoteRenderer);
-
-    _localStream?.getTracks().forEach((track) {
-      _peerConnection?.addTrack(track, _localStream!);
-    });
-
-    await _peerConnection!.setRemoteDescription(
-      RTCSessionDescription(offer['sdp'], offer['type']),
-    );
-
-    RTCSessionDescription answer = await _peerConnection!.createAnswer();
-    await _peerConnection!.setLocalDescription(answer);
-
-    _socketService.sendCallAnswer(
-      to: fromUserId,
-      answer: answer.toMap(),
-    );
-  }
-
-  // إضافة الـ ICE Candidate المستلم من الطرف الآخر
   Future<void> addIceCandidate(dynamic candidateData) async {
-    if (_peerConnection != null) {
-      final candidate = RTCIceCandidate(
-        candidateData['candidate'],
-        candidateData['sdpMid'],
-        candidateData['sdpMLineIndex'],
-      );
-      await _peerConnection!.addCandidate(candidate);
+    if (_peerConnection == null || candidateData is! Map) {
+      return;
     }
+
+    final candidate = candidateData['candidate'];
+    final sdpMid = candidateData['sdpMid'];
+    final sdpMLineIndex = candidateData['sdpMLineIndex'];
+
+    if (candidate == null || candidate.toString().isEmpty) {
+      return;
+    }
+
+    await _peerConnection!.addCandidate(
+      RTCIceCandidate(
+        candidate.toString(),
+        sdpMid?.toString(),
+        sdpMLineIndex is int ? sdpMLineIndex : 0,
+      ),
+    );
   }
 
-  // التحكم بكتم الصوت وتوقف الكاميرا على مستوى دفق WebRTC
   void toggleLocalAudio(bool isMuted) {
     _localStream?.getAudioTracks().forEach((track) {
       track.enabled = !isMuted;
@@ -147,7 +157,6 @@ class WebRTCService {
     });
   }
 
-  // تحرير وإغلاق كافة المسارات الكاميرا والميكروفون بمرونة
   void disposeRenderers(RTCVideoRenderer local, RTCVideoRenderer remote) {
     local.srcObject = null;
     remote.srcObject = null;

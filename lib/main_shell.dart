@@ -58,7 +58,12 @@ class _MainShellState extends State<MainShell> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => VideoCallScreen(controller: widget.controller),
+                builder: (_) => VideoCallScreen(
+                  controller: widget.controller,
+                  peerId: callerId,
+                  incomingOffer: data['offer'] as Map<String, dynamic>?,
+                  isIncomingCall: true,
+                ),
               ),
             );
           },

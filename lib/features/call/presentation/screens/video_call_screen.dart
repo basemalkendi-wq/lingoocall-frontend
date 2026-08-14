@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,12 +9,22 @@ import 'package:simple_pip_mode/simple_pip.dart';
 import 'package:lingoocall/core/constants/app_colors.dart';
 import 'package:lingoocall/core/controllers/app_controller.dart';
 import 'package:lingoocall/core/services/call_foreground_service.dart';
+import 'package:lingoocall/core/services/socket_service.dart';
 import 'package:lingoocall/core/services/webrtc_service.dart';
 
 class VideoCallScreen extends StatefulWidget {
   final AppController controller;
+  final String? peerId;
+  final Map<String, dynamic>? incomingOffer;
+  final bool isIncomingCall;
 
-  const VideoCallScreen({super.key, required this.controller});
+  const VideoCallScreen({
+    super.key,
+    required this.controller,
+    this.peerId,
+    this.incomingOffer,
+    this.isIncomingCall = false,
+  });
 
   @override
   State<VideoCallScreen> createState() => _VideoCallScreenState();
@@ -50,9 +61,18 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
 
     final target = widget.controller.activeCallContact;
-    if (target != null) {
-      _webRTCService.makeCall(target.id, _remoteRenderer);
+    final peerId = widget.peerId ?? target?.id;
 
+    if (widget.isIncomingCall &&
+        widget.incomingOffer != null &&
+        peerId != null) {
+      await _webRTCService.answerCall(
+        peerId,
+        widget.incomingOffer,
+        _remoteRenderer,
+      );
+    } else if (target != null) {
+      await _webRTCService.makeCall(target.id, _remoteRenderer);
       if (!kIsWeb) {
         CallForegroundService.startCallNotification(
           contactName: target.name,
@@ -60,6 +80,21 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         );
       }
     }
+
+    SocketService().listenToCallAccepted((data) {
+      if (!mounted) return;
+      final answer = data is Map ? data['answer'] : null;
+      if (answer != null) {
+        unawaited(_webRTCService.setRemoteAnswer(answer));
+      }
+    });
+
+    SocketService().listenToIceCandidate((data) {
+      if (!mounted) return;
+      if (data is Map) {
+        unawaited(_webRTCService.addIceCandidate(data['candidate']));
+      }
+    });
   }
 
   @override
@@ -126,7 +161,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: _remoteRenderer.srcObject != null &&
+                  child:
+                      _remoteRenderer.srcObject != null &&
                           !widget.controller.isVideoOff
                       ? RTCVideoView(
                           _remoteRenderer,
@@ -134,48 +170,49 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                               RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                         )
                       : (_isCameraInitialized && !widget.controller.isVideoOff
-                          ? RTCVideoView(
-                              _localRenderer,
-                              mirror: true,
-                              objectFit: RTCVideoViewObjectFit
-                                  .RTCVideoViewObjectFitCover,
-                            )
-                          : Container(
-                              color: const Color(0xFF111827),
-                              child: Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 22,
-                                      backgroundColor: AppColors.primary
-                                          .withValues(alpha: 0.3),
-                                      child: Text(
-                                        contact != null && contact.name.isNotEmpty
-                                            ? contact.name
-                                                .substring(0, 1)
-                                                .toUpperCase()
-                                            : 'A',
-                                        style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
+                            ? RTCVideoView(
+                                _localRenderer,
+                                mirror: true,
+                                objectFit: RTCVideoViewObjectFit
+                                    .RTCVideoViewObjectFitCover,
+                              )
+                            : Container(
+                                color: const Color(0xFF111827),
+                                child: Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 22,
+                                        backgroundColor: AppColors.primary
+                                            .withValues(alpha: 0.3),
+                                        child: Text(
+                                          contact != null &&
+                                                  contact.name.isNotEmpty
+                                              ? contact.name
+                                                    .substring(0, 1)
+                                                    .toUpperCase()
+                                              : 'A',
+                                          style: const TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      contact?.name ?? 'LingooCall',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        contact?.name ?? 'LingooCall',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            )),
+                              )),
                 ),
               ],
             ),
@@ -196,7 +233,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             children: [
               // --- عرض فيديو المستقبل الحقيقي أو الخلفية الكبيرة ---
               Positioned.fill(
-                child: _remoteRenderer.srcObject != null &&
+                child:
+                    _remoteRenderer.srcObject != null &&
                         !widget.controller.isVideoOff
                     ? RTCVideoView(
                         _remoteRenderer,
@@ -204,78 +242,78 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                             RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                       )
                     : (_isCameraInitialized && !widget.controller.isVideoOff
-                        ? RTCVideoView(
-                            _localRenderer,
-                            mirror: true,
-                            objectFit: RTCVideoViewObjectFit
-                                .RTCVideoViewObjectFitCover,
-                          )
-                        : Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Color(0xFF1E1E2C),
-                                  Color(0xFF2A2A40),
-                                  Color(0xFF111827),
-                                ],
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
+                          ? RTCVideoView(
+                              _localRenderer,
+                              mirror: true,
+                              objectFit: RTCVideoViewObjectFit
+                                  .RTCVideoViewObjectFitCover,
+                            )
+                          : Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Color(0xFF1E1E2C),
+                                    Color(0xFF2A2A40),
+                                    Color(0xFF111827),
+                                  ],
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                ),
                               ),
-                            ),
-                            child: Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  CircleAvatar(
-                                    radius: 54,
-                                    backgroundColor: AppColors.accent
-                                        .withValues(alpha: 0.3),
-                                    child: Text(
-                                      contact != null &&
-                                              contact.name.isNotEmpty
-                                          ? contact.name
-                                              .substring(0, 1)
-                                              .toUpperCase()
-                                          : 'A',
-                                      style: const TextStyle(
-                                        fontSize: 48,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    contact?.name ?? 'Ayla Yılmaz',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.graphic_eq_rounded,
-                                        color: AppColors.accent,
-                                        size: 18,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'Speaking ${contact?.nativeLanguage ?? "Turkish"} ${contact?.flag ?? "🇹🇷"}',
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 54,
+                                      backgroundColor: AppColors.accent
+                                          .withValues(alpha: 0.3),
+                                      child: Text(
+                                        contact != null &&
+                                                contact.name.isNotEmpty
+                                            ? contact.name
+                                                  .substring(0, 1)
+                                                  .toUpperCase()
+                                            : 'A',
                                         style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 14,
+                                          fontSize: 48,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      contact?.name ?? 'Ayla Yılmaz',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.graphic_eq_rounded,
+                                          color: AppColors.accent,
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Speaking ${contact?.nativeLanguage ?? "Turkish"} ${contact?.flag ?? "🇹🇷"}',
+                                          style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          )),
+                            )),
               ),
 
               // --- زر التصغير العلوي وشريط زمن الاتصال (لا ينهي المكالمة) ---
