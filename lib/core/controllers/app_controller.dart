@@ -84,12 +84,16 @@ class AppController extends ChangeNotifier {
   Future<void> _restoreSessionFromPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     final storedUserJson = prefs.getString('current_user');
+    final savedPhone = prefs.getString('user_phone') ?? prefs.getString('phone') ?? '';
 
     if (storedUserJson != null && storedUserJson.isNotEmpty) {
       try {
         final decoded = jsonDecode(storedUserJson);
         if (decoded is Map<String, dynamic>) {
           _currentUser = UserProfile.fromJson(decoded);
+          if (_currentUser.phone.trim().isEmpty && savedPhone.isNotEmpty) {
+            _currentUser = _currentUser.copyWith(phone: savedPhone);
+          }
           _isAuthenticated = true;
         }
       } catch (_) {
@@ -102,8 +106,13 @@ class AppController extends ChangeNotifier {
         id: prefs.getString('user_id') ?? _currentUser.id,
         username: prefs.getString('username') ?? _currentUser.username,
         email: prefs.getString('email') ?? _currentUser.email,
+        phone: savedPhone.isNotEmpty ? savedPhone : _currentUser.phone,
       );
       _isAuthenticated = true;
+    }
+
+    if (_currentUser.phone.trim().isEmpty && savedPhone.isNotEmpty) {
+      _currentUser = _currentUser.copyWith(phone: savedPhone);
     }
 
     _connectToSocketServer();
@@ -116,6 +125,7 @@ class AppController extends ChangeNotifier {
     await prefs.setString('user_id', _currentUser.id);
     await prefs.setString('username', _currentUser.username);
     await prefs.setString('email', _currentUser.email);
+    await prefs.setString('user_phone', _currentUser.phone);
     await prefs.setString('current_user', jsonEncode(_currentUser.toJson()));
   }
 
@@ -270,6 +280,8 @@ class AppController extends ChangeNotifier {
       await prefs.remove('user_id');
       await prefs.remove('username');
       await prefs.remove('email');
+      await prefs.remove('user_phone');
+      await prefs.remove('phone');
       await prefs.remove('current_user');
     });
     notifyListeners();
