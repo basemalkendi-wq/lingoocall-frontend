@@ -89,33 +89,42 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 _openChatWithNumber(phone);
               }
             },
-            child: const Text('بدء المحادثة', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'بدء المحادثة',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
     );
   }
 
-  // --- فتح شاشة المحادثة المباشرة للرقم غير المحفوظ ---
-  void _openChatWithNumber(String phone) {
-    final tempContact = ContactItem(
-      id: phone,
-      name: phone,
-      phone: phone,
-      nativeLanguage: 'Auto',
-      flag: '🏳️',
-      isRegistered: false,
-      isOnline: false,
+  // --- فتح شاشة المحادثة فقط إذا كان الهدف مستخدماً مسجلاً فعلياً ---
+  Future<void> _openChatWithNumber(String phone) async {
+    final resolvedContact = await widget.controller.resolveRegisteredChatTarget(
+      phone,
     );
+    if (resolvedContact == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'لا يمكن بدء محادثة مع هذا الرقم لأنه غير مسجل في النظام.',
+          ),
+        ),
+      );
+      return;
+    }
 
-    widget.controller.openChat(tempContact);
+    widget.controller.openChat(resolvedContact);
 
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ChatDetailScreen(
           controller: widget.controller,
-          contact: tempContact,
+          contact: resolvedContact,
         ),
       ),
     );
@@ -137,12 +146,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }).toList();
 
     // فحص ما إذا كان المدخل بداخل البحث عبارة عن رقم هاتف غير محفوظ
-    final bool isQueryPhoneNumber = _isSearching &&
+    final bool isQueryPhoneNumber =
+        _isSearching &&
         _searchQuery.trim().isNotEmpty &&
         RegExp(r'^[+0-9\s-]+$').hasMatch(_searchQuery.trim());
 
     // فحص ما إذا كان المدخل بداخل البحث عبارة عن اسم مستخدم (@username أو نص اسم)
-    final bool isQueryUsername = _isSearching &&
+    final bool isQueryUsername =
+        _isSearching &&
         _searchQuery.trim().isNotEmpty &&
         (_searchQuery.trim().startsWith('@') ||
             (_searchQuery.trim().length > 2 &&
@@ -211,27 +222,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
               );
             },
           ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert_rounded),
-            onSelected: (val) {
-              if (val == 'direct_chat') {
-                _showDirectChatDialog();
-              }
-            },
-            itemBuilder: (ctx) => [
-              const PopupMenuItem(
-                value: 'direct_chat',
-                child: Row(
-                  children: [
-                    Icon(Icons.mark_chat_unread_rounded,
-                        color: AppColors.primary, size: 20),
-                    SizedBox(width: 8),
-                    Text('محادثة رقم غير محفوظ'),
-                  ],
-                ),
-              ),
-            ],
-          ),
         ],
       ),
       body: Column(
@@ -262,145 +252,41 @@ class _ChatListScreenState extends State<ChatListScreen> {
             ),
           ),
 
-          // 🟣 كارت البحث الذكي باسم المستخدم (@username) يظهر بداخل شريط البحث الرئيسي
-          if (isQueryUsername)
-            InkWell(
-              onTap: () {
-                final formattedUsername = _searchQuery.trim().startsWith('@')
-                    ? _searchQuery.trim()
-                    : '@${_searchQuery.trim()}';
-
-                final searchedUser = UserProfile(
-                  id: 'usr_${_searchQuery.trim().replaceAll('@', '')}',
-                  name: 'User ${_searchQuery.trim().replaceAll('@', '')}',
-                  username: formattedUsername,
-                  phone: '+967 770000000',
-                  nativeLanguage: 'Turkish',
-                  nativeFlag: '🇹🇷',
-                  targetLanguage: 'Arabic',
-                  targetFlag: '🇾🇪',
-                  avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb',
-                  bio: 'مستخدم محترف في نظام LingooCall للتواصل المترجم والذكاء الاصطناعي 🚀',
-                  followersCount: 1420,
-                  followingCount: 380,
-                  isFollowing: false,
-                  phonePrivacy: PhoneNumberPrivacy.nobody,
-                );
-
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PublicProfileScreen(
-                      controller: widget.controller,
-                      userProfile: searchedUser,
-                    ),
-                  ),
-                );
-              },
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: AppColors.accent.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 20,
-                      backgroundColor: AppColors.accent.withValues(alpha: 0.2),
-                      child: const Icon(
-                        Icons.alternate_email_rounded,
-                        color: AppColors.accent,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _searchQuery.trim().startsWith('@')
-                                ? _searchQuery.trim()
-                                : '@${_searchQuery.trim()}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'عرض الملف الشخصي العام والمتابعة',
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 16,
-                      color: AppColors.accent,
-                    ),
-                  ],
-                ),
+          if (isQueryUsername || isQueryPhoneNumber)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
               ),
-            ),
-
-          // 🟢 كارت المراسلة المباشرة برقم الهاتف غير المحفوظ
-          if (isQueryPhoneNumber)
-            InkWell(
-              onTap: () => _openChatWithNumber(_searchQuery.trim()),
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.3),
+              child: Row(
+                children: [
+                  const CircleAvatar(
+                    radius: 20,
+                    backgroundColor: Colors.grey,
+                    child: Icon(
+                      Icons.block_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    const CircleAvatar(
-                      radius: 20,
-                      backgroundColor: AppColors.primary,
-                      child: Icon(Icons.chat_rounded, color: Colors.white, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'لا يمكن بدء المحادثة إلا مع مستخدم مسجل ومعتمد في LingooCall.',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'مراسلة ${_searchQuery.trim()}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'رقم غير محفوظ - بدء محادثة جديدة فوراً',
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Icon(Icons.arrow_forward_ios_rounded,
-                        size: 16, color: AppColors.primary),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
 
           // عرض قائمة المحادثات النشطة أو الواجهة الفارغة
           Expanded(
-            child: filteredConversations.isEmpty &&
+            child:
+                filteredConversations.isEmpty &&
                     !isQueryPhoneNumber &&
                     !isQueryUsername
                 ? _buildEmptyState(context, tr, isDark)
@@ -413,8 +299,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     ),
                     itemBuilder: (context, index) {
                       final item = filteredConversations[index];
-                      final msgs =
-                          widget.controller.getMessagesForContact(item.id);
+                      final msgs = widget.controller.getMessagesForContact(
+                        item.id,
+                      );
                       final lastMsg = msgs.isNotEmpty ? msgs.last : null;
 
                       return ListTile(
@@ -513,8 +400,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                       vertical: 2,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: AppColors.accent
-                                          .withValues(alpha: 0.15),
+                                      color: AppColors.accent.withValues(
+                                        alpha: 0.15,
+                                      ),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
@@ -532,7 +420,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                       lastMsg != null
                                           ? lastMsg.translatedText
                                           : tr.translate(
-                                              'realTimeAiVoiceMessaging'),
+                                              'realTimeAiVoiceMessaging',
+                                            ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(

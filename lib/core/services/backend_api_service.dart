@@ -13,7 +13,7 @@ class BackendApiService {
 
   Uri _uri(String path) => Uri.parse('${AppConstants.backendBaseUrl}$path');
 
-  Future<Map<String, dynamic>> requestOtp({
+  Future<Map<String, dynamic>> register({
     required String email,
     required String username,
     required String fullName,
@@ -23,7 +23,7 @@ class BackendApiService {
     required String avatarUrl,
   }) async {
     final response = await http.post(
-      _uri('/api/auth/request-otp'),
+      _uri('/api/auth/register'),
       headers: const {'Content-Type': 'application/json'},
       body: jsonEncode({
         'email': email,
@@ -31,24 +31,9 @@ class BackendApiService {
         'fullName': fullName,
         'phone': phone,
         'password': password,
-        'isSignUp': true,
         'nativeLanguage': nativeLanguage,
         'avatarUrl': avatarUrl,
       }),
-    );
-
-    return _decodeJson(response);
-  }
-
-  Future<Map<String, dynamic>> verifyOtp({
-    required String email,
-    required String otp,
-    required bool isSignUp,
-  }) async {
-    final response = await http.post(
-      _uri('/api/auth/verify-otp'),
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'otp': otp, 'isSignUp': isSignUp}),
     );
 
     return _decodeJson(response);
@@ -90,7 +75,11 @@ class BackendApiService {
           final id = rawId.isNotEmpty ? rawId : phone;
           return ContactItem(
             id: id,
-            name: item['name']?.toString() ?? item['fullName']?.toString() ?? item['username']?.toString() ?? phone,
+            name:
+                item['name']?.toString() ??
+                item['fullName']?.toString() ??
+                item['username']?.toString() ??
+                phone,
             phone: phone,
             nativeLanguage: item['nativeLanguage']?.toString() ?? 'Arabic',
             flag: item['nativeFlag']?.toString() ?? '🇾🇪',
@@ -102,13 +91,18 @@ class BackendApiService {
   }
 
   Future<UserProfile?> lookupUser(String identifier) async {
-    final response = await http.get(_uri('/api/users/lookup?identifier=${Uri.encodeComponent(identifier)}'));
+    final response = await http.get(
+      _uri('/api/users/lookup?identifier=${Uri.encodeComponent(identifier)}'),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       return null;
     }
     final payload = jsonDecode(response.body);
-    if (payload is Map<String, dynamic> && payload['user'] is Map<String, dynamic>) {
-      return UserProfile.fromJson(Map<String, dynamic>.from(payload['user'] as Map));
+    if (payload is Map<String, dynamic> &&
+        payload['user'] is Map<String, dynamic>) {
+      return UserProfile.fromJson(
+        Map<String, dynamic>.from(payload['user'] as Map),
+      );
     }
     return null;
   }

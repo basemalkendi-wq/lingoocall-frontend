@@ -16,6 +16,10 @@ class NotificationService {
   );
 
   Future<void> initialize() async {
+    if (kIsWeb) {
+      return;
+    }
+
     // 1. طلب صلاحية الإشعارات من المستخدم (تغطي Android و iOS)
     NotificationSettings settings = await _firebaseMessaging.requestPermission(
       alert: true,

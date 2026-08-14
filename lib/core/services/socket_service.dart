@@ -1,11 +1,14 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:lingoocall/core/constants/app_constants.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 class SocketService {
   static final SocketService _instance = SocketService._internal();
   factory SocketService() => _instance;
   SocketService._internal();
+
+  static String buildSocketUrl() => AppConstants.backendBaseUrl;
 
   io.Socket? _socket;
   bool _isConnected = false;
@@ -21,7 +24,7 @@ class SocketService {
   }) {
     _currentUserId = userId;
 
-    final String serverUrl = 'https://lingoocall-backend.onrender.com';
+    final String serverUrl = buildSocketUrl();
 
     _socket?.disconnect();
     _socket = io.io(

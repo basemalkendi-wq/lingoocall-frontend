@@ -46,6 +46,20 @@
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
 
+    <key>CFBundleURLTypes</key>
+    <array>
+      <dict>
+        <key>CFBundleTypeRole</key>
+        <string>Editor</string>
+        <key>CFBundleURLName</key>
+        <string>lingoocall.oauth</string>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>lingoocall</string>
+        </array>
+      </dict>
+    </array>
+
     <key>NSContactsUsageDescription</key>
     <string>LingooCall needs access to your contacts to show only registered users and start chats with people already on the network.</string>
 

@@ -12,15 +12,14 @@ import 'package:lingoocall/core/services/notification_service.dart';
 import 'package:lingoocall/core/theme/app_theme.dart';
 import 'package:lingoocall/firebase_options.dart';
 import 'package:lingoocall/features/auth/presentation/screens/login_screen.dart';
+import 'package:lingoocall/features/auth/presentation/screens/oauth_callback_screen.dart';
 import 'package:lingoocall/features/call/presentation/screens/video_call_screen.dart';
 import 'package:lingoocall/main_shell.dart';
 
 // دالة معالجة الإشعارات الواردة أثناء إغلاق التطبيق أو وجوده في الخلفية
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
 
 Future<void> main() async {
@@ -34,11 +33,15 @@ Future<void> main() async {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   }
 
-  // 3. تهيئة خدمة الإشعارات وطلب الصلاحيات
-  await NotificationService().initialize();
+  // 3. تهيئة خدمة الإشعارات وطلب الصلاحيات (غير متاحة على Flutter Web)
+  if (!kIsWeb) {
+    await NotificationService().initialize();
+  }
 
   // 4. قفل اتجاه الشاشة على الوضع العمودي
-  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  if (!kIsWeb) {
+    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  }
 
   // 5. التحقق من حالة تسجيل الدخول المحفوظة للجلسة
   final prefs = await SharedPreferences.getInstance();
@@ -91,6 +94,8 @@ class _LingooCallAppState extends State<LingooCallApp> {
           routes: {
             '/login': (context) => LoginScreen(controller: _appController),
             '/home': (context) => MainShell(controller: _appController),
+            '/auth-callback': (context) =>
+                OAuthCallbackScreen(controller: _appController),
           },
           home: _appController.isInCall
               ? VideoCallScreen(controller: _appController)

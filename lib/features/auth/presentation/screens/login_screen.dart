@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:lingoocall/core/constants/app_colors.dart';
 import 'package:lingoocall/core/constants/app_constants.dart';
 import 'package:lingoocall/core/controllers/app_controller.dart';
+import 'package:lingoocall/core/services/auth_browser_service.dart';
 import 'package:lingoocall/core/services/backend_api_service.dart';
 import 'package:lingoocall/features/auth/domain/models/user_profile.dart';
-import 'otp_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final AppController controller;
@@ -108,6 +108,67 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  Future<void> _continueWithGoogle() async {
+    setState(() => isLoading = true);
+    try {
+      final googleUrl =
+          'https://accounts.google.com/o/oauth2/v2/auth?client_id=your-google-client-id.apps.googleusercontent.com&redirect_uri=${Uri.encodeComponent(AuthBrowserService.defaultRedirectUri)}&response_type=code&scope=${Uri.encodeComponent('openid email profile')}&state=lingoocall-google-auth';
+
+      final params = await AuthBrowserService.openOAuthFlow(
+        authorizationUrl: googleUrl,
+        redirectUri: AuthBrowserService.defaultRedirectUri,
+      );
+
+      if (!mounted) return;
+
+      final accessToken = params['access_token'];
+      final authCode = params['code'];
+      final state = params['state'];
+
+      if ((accessToken == null || accessToken.isEmpty) &&
+          (authCode == null || authCode.isEmpty)) {
+        _showSnackBar(
+          'Google sign-in was cancelled or the redirect did not return a token.',
+        );
+        return;
+      }
+
+      if (state != null && state.isNotEmpty) {
+        final fakeUser = UserProfile(
+          id: 'google_user_${DateTime.now().millisecondsSinceEpoch}',
+          name: 'Google User',
+          phone: '+0000000000',
+          nativeLanguage: widget.controller.currentUser.nativeLanguage,
+          nativeFlag: widget.controller.currentUser.nativeFlag,
+          targetLanguage: widget.controller.currentUser.targetLanguage,
+          targetFlag: widget.controller.currentUser.targetFlag,
+          avatarUrl: '',
+          username: 'googleuser',
+          email: 'google-user@lingoocall.app',
+        );
+
+        await widget.controller.applyAuthenticatedUser(fakeUser);
+        if (!mounted) return;
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil('/home', (route) => false);
+        return;
+      }
+
+      widget.controller.login();
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+    } catch (_) {
+      if (mounted) {
+        _showSnackBar('Unable to start Google Sign-In in the system browser.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
   Future<void> _submitAuth() async {
     if (isSignUp) {
       final fullNameText = fullNameController.text.trim();
@@ -143,10 +204,11 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       final fullPhone = '$selectedCountryCode$phoneText';
+
       setState(() => isLoading = true);
 
       try {
-        final data = await BackendApiService.instance.requestOtp(
+        final data = await BackendApiService.instance.register(
           email: emailText,
           username: usernameText,
           fullName: fullNameText,
@@ -156,30 +218,21 @@ class _LoginScreenState extends State<LoginScreen> {
           avatarUrl: widget.controller.currentUser.avatarUrl,
         );
 
-        if (data['success'] == true) {
+        if (data['success'] == true && data['user'] is Map) {
           if (!mounted) return;
-          final otpCode = data['otp']?.toString() ?? '';
-          if (otpCode.isNotEmpty) {
-            _showSnackBar(
-              'رمز التحقق الخاص بك هو: $otpCode',
-              isSuccess: true,
-              durationSeconds: 15,
-            );
-          }
-
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => OtpVerificationScreen(
-                email: emailText,
-                controller: widget.controller,
-                isSignUp: true,
-              ),
+          await widget.controller.applyAuthenticatedUser(
+            UserProfile.fromJson(
+              Map<String, dynamic>.from(data['user'] as Map),
             ),
           );
-        } else {
-          _showSnackBar(data['message']?.toString() ?? tr('err_general'));
+          if (!mounted) return;
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil('/home', (route) => false);
+          return;
         }
+
+        _showSnackBar(data['message']?.toString() ?? tr('err_general'));
       } catch (_) {
         _showSnackBar(tr('err_network'));
       } finally {
@@ -205,13 +258,18 @@ class _LoginScreenState extends State<LoginScreen> {
         if (data['success'] == true && data['user'] is Map) {
           if (!mounted) return;
           await widget.controller.applyAuthenticatedUser(
-            UserProfile.fromJson(Map<String, dynamic>.from(data['user'] as Map)),
+            UserProfile.fromJson(
+              Map<String, dynamic>.from(data['user'] as Map),
+            ),
           );
           messenger.showSnackBar(
             SnackBar(
               content: Text(
                 tr('welcome'),
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
               backgroundColor: Colors.green.shade700,
               behavior: SnackBarBehavior.floating,
@@ -582,6 +640,18 @@ class _LoginScreenState extends State<LoginScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: isLoading ? null : _continueWithGoogle,
+                  icon: const Icon(Icons.g_mobiledata_rounded),
+                  label: const Text('Continue with Google'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 20),
               ],

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lingoocall/core/services/backend_api_service.dart';
 import 'package:lingoocall/core/services/contacts_sync_service.dart';
 import 'package:lingoocall/core/services/socket_service.dart';
 import 'package:lingoocall/core/services/translation_service.dart';
@@ -288,7 +289,117 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  static bool isRegisteredChatTargetAllowed(
+    String identifier, {
+    List<ContactItem>? registeredContacts,
+    UserProfile? currentUser,
+  }) {
+    final trimmed = identifier.trim();
+    if (trimmed.isEmpty) return false;
+
+    final normalized = trimmed.replaceAll(RegExp(r'\D'), '');
+    if (normalized.isEmpty || normalized.length < 7) return false;
+
+    final contactMatches = (registeredContacts ?? const <ContactItem>[]).any((
+      contact,
+    ) {
+      final contactPhone = contact.phone.replaceAll(RegExp(r'\D'), '');
+      final contactId = contact.id.trim();
+      final contactName = contact.name.trim();
+      return contactId == trimmed ||
+          contactId == trimmed.replaceFirst('@', '') ||
+          contactPhone == normalized ||
+          contactName == trimmed ||
+          contactName.toLowerCase() == trimmed.toLowerCase();
+    });
+
+    if (contactMatches) return true;
+
+    final user =
+        currentUser ??
+        UserProfile(
+          id: '',
+          name: '',
+          phone: '',
+          nativeLanguage: 'Arabic',
+          nativeFlag: '🇾🇪',
+          targetLanguage: 'Turkish',
+          targetFlag: '🇹🇷',
+          avatarUrl: '',
+          username: '',
+        );
+
+    return user.phone.replaceAll(RegExp(r'\D'), '') == normalized ||
+        user.username.trim().toLowerCase() == trimmed.toLowerCase() ||
+        user.id == trimmed;
+  }
+
+  bool isValidRegisteredChatTarget(String identifier) {
+    return AppController.isRegisteredChatTargetAllowed(
+      identifier,
+      registeredContacts: _registeredContacts,
+      currentUser: _currentUser,
+    );
+  }
+
+  Future<ContactItem?> resolveRegisteredChatTarget(String identifier) async {
+    final trimmed = identifier.trim();
+    if (trimmed.isEmpty) return null;
+
+    final existing = _registeredContacts.firstWhere(
+      (contact) =>
+          contact.id == trimmed ||
+          contact.phone.replaceAll(RegExp(r'\D'), '') ==
+              trimmed.replaceAll(RegExp(r'\D'), '') ||
+          contact.name.trim() == trimmed,
+      orElse: () => ContactItem(
+        id: '',
+        name: '',
+        phone: '',
+        nativeLanguage: '',
+        flag: '',
+        isRegistered: false,
+        isOnline: false,
+      ),
+    );
+
+    if (existing.id.isNotEmpty) {
+      return existing;
+    }
+
+    try {
+      final user = await BackendApiService.instance.lookupUser(trimmed);
+      if (user == null) return null;
+
+      return ContactItem(
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        nativeLanguage: user.nativeLanguage,
+        flag: user.nativeFlag,
+        isRegistered: true,
+        isOnline: false,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   void openChat(ContactItem contact) {
+    if (!contact.isRegistered &&
+        !AppController.isRegisteredChatTargetAllowed(
+          contact.id,
+          registeredContacts: _registeredContacts,
+          currentUser: _currentUser,
+        ) &&
+        !AppController.isRegisteredChatTargetAllowed(
+          contact.phone,
+          registeredContacts: _registeredContacts,
+          currentUser: _currentUser,
+        )) {
+      return;
+    }
+
     _activeChatContact = contact;
     if (!_chatHistory.containsKey(contact.id)) {
       _chatHistory[contact.id] = [];
@@ -306,6 +417,19 @@ class AppController extends ChangeNotifier {
 
   Future<void> sendMessage(String text) async {
     if (_activeChatContact == null || text.trim().isEmpty) return;
+    if (!_activeChatContact!.isRegistered &&
+        !AppController.isRegisteredChatTargetAllowed(
+          _activeChatContact!.id,
+          registeredContacts: _registeredContacts,
+          currentUser: _currentUser,
+        ) &&
+        !AppController.isRegisteredChatTargetAllowed(
+          _activeChatContact!.phone,
+          registeredContacts: _registeredContacts,
+          currentUser: _currentUser,
+        )) {
+      return;
+    }
 
     final targetLangCode = _resolveLanguageCode(
       _activeChatContact!.isRegistered
@@ -369,17 +493,27 @@ class AppController extends ChangeNotifier {
 
   String _resolveLanguageCode(String languageName) {
     final normalized = languageName.toLowerCase();
-    if (normalized.contains('arab') || normalized.contains('عربي')) return 'ar';
-    if (normalized.contains('engl') || normalized.contains('إنجليزي'))
+    if (normalized.contains('arab') || normalized.contains('عربي')) {
+      return 'ar';
+    }
+    if (normalized.contains('engl') || normalized.contains('إنجليزي')) {
       return 'en';
-    if (normalized.contains('fran') || normalized.contains('فرنسي'))
+    }
+    if (normalized.contains('fran') || normalized.contains('فرنسي')) {
       return 'fr';
-    if (normalized.contains('span') || normalized.contains('إسباني'))
+    }
+    if (normalized.contains('span') || normalized.contains('إسباني')) {
       return 'es';
-    if (normalized.contains('ger') || normalized.contains('ألماني'))
+    }
+    if (normalized.contains('ger') || normalized.contains('ألماني')) {
       return 'de';
-    if (normalized.contains('chin') || normalized.contains('صيني')) return 'zh';
-    if (normalized.contains('turk') || normalized.contains('تركي')) return 'tr';
+    }
+    if (normalized.contains('chin') || normalized.contains('صيني')) {
+      return 'zh';
+    }
+    if (normalized.contains('turk') || normalized.contains('تركي')) {
+      return 'tr';
+    }
     return 'auto';
   }
 
