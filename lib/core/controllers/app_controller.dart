@@ -395,6 +395,34 @@ class AppController extends ChangeNotifier {
     final trimmed = identifier.trim();
     if (trimmed.isEmpty) return null;
 
+    try {
+      final directUser = await BackendApiService.instance.resolveExactUser(
+        trimmed,
+      );
+      if (directUser != null) {
+        final normalizedTargetPhone = directUser.phone.replaceAll(
+          RegExp(r'\D'),
+          '',
+        );
+        if (normalizedTargetPhone.isNotEmpty &&
+            normalizedTargetPhone.length < 7) {
+          return null;
+        }
+
+        return ContactItem(
+          id: directUser.id,
+          name: directUser.name,
+          phone: directUser.phone,
+          nativeLanguage: directUser.nativeLanguage,
+          flag: directUser.nativeFlag,
+          isRegistered: true,
+          isOnline: false,
+        );
+      }
+    } catch (_) {
+      // Fall through to local-contact validation below if the backend is temporarily unavailable.
+    }
+
     final normalizedInput = trimmed.replaceAll(RegExp(r'\D'), '');
     final query = trimmed.replaceFirst('@', '').toLowerCase();
 
@@ -429,28 +457,7 @@ class AppController extends ChangeNotifier {
       return existing;
     }
 
-    try {
-      final user = await BackendApiService.instance.lookupUser(trimmed);
-      if (user == null) return null;
-
-      final normalizedTargetPhone = user.phone.replaceAll(RegExp(r'\D'), '');
-      if (normalizedTargetPhone.isNotEmpty &&
-          normalizedTargetPhone.length < 7) {
-        return null;
-      }
-
-      return ContactItem(
-        id: user.id,
-        name: user.name,
-        phone: user.phone,
-        nativeLanguage: user.nativeLanguage,
-        flag: user.nativeFlag,
-        isRegistered: true,
-        isOnline: false,
-      );
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 
   Future<List<ContactItem>> searchUsers(String query) async {

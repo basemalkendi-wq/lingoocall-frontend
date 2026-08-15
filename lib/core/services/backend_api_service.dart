@@ -94,6 +94,9 @@ class BackendApiService {
     final raw = identifier.trim();
     if (raw.isEmpty) return null;
 
+    final exactCandidate = await resolveExactUser(raw);
+    if (exactCandidate != null) return exactCandidate;
+
     final endpoints = [
       '/api/users/lookup?identifier=${Uri.encodeComponent(raw)}',
       '/api/users/search?query=${Uri.encodeComponent(raw)}',
@@ -122,6 +125,33 @@ class BackendApiService {
     }
 
     return null;
+  }
+
+  Future<UserProfile?> resolveExactUser(String identifier) async {
+    final raw = identifier.trim();
+    if (raw.isEmpty) return null;
+
+    final response = await http.post(
+      _uri('/api/users/resolve'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({'identifier': raw}),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return null;
+    }
+
+    final payload = jsonDecode(response.body);
+    if (payload is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final candidate = payload['user'];
+    if (candidate is! Map) {
+      return null;
+    }
+
+    return UserProfile.fromJson(Map<String, dynamic>.from(candidate));
   }
 
   Future<List<UserProfile>> searchUsers(String query) async {
