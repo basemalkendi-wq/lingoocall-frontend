@@ -91,20 +91,66 @@ class BackendApiService {
   }
 
   Future<UserProfile?> lookupUser(String identifier) async {
+    final raw = identifier.trim();
+    if (raw.isEmpty) return null;
+
+    final endpoints = [
+      '/api/users/lookup?identifier=${Uri.encodeComponent(raw)}',
+      '/api/users/search?query=${Uri.encodeComponent(raw)}',
+    ];
+
+    for (final endpoint in endpoints) {
+      final response = await http.get(_uri(endpoint));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        continue;
+      }
+
+      final payload = jsonDecode(response.body);
+      if (payload is! Map<String, dynamic>) {
+        continue;
+      }
+
+      final candidate = payload['user'];
+      if (candidate is Map) {
+        return UserProfile.fromJson(Map<String, dynamic>.from(candidate));
+      }
+
+      final results = payload['results'];
+      if (results is List && results.isNotEmpty && results.first is Map) {
+        return UserProfile.fromJson(Map<String, dynamic>.from(results.first));
+      }
+    }
+
+    return null;
+  }
+
+  Future<List<UserProfile>> searchUsers(String query) async {
+    final raw = query.trim();
+    if (raw.isEmpty) return const [];
+
     final response = await http.get(
-      _uri('/api/users/lookup?identifier=${Uri.encodeComponent(identifier)}'),
+      _uri('/api/users/search?query=${Uri.encodeComponent(raw)}'),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      return null;
+      return const [];
     }
+
     final payload = jsonDecode(response.body);
-    if (payload is Map<String, dynamic> &&
-        payload['user'] is Map<String, dynamic>) {
-      return UserProfile.fromJson(
-        Map<String, dynamic>.from(payload['user'] as Map),
-      );
+    if (payload is! Map<String, dynamic>) {
+      return const [];
     }
-    return null;
+
+    final results = payload['results'];
+    if (results is! List) {
+      return const [];
+    }
+
+    return results
+        .whereType<Map>()
+        .map((item) {
+          return UserProfile.fromJson(Map<String, dynamic>.from(item));
+        })
+        .toList(growable: false);
   }
 
   Map<String, dynamic> _decodeJson(http.Response response) {

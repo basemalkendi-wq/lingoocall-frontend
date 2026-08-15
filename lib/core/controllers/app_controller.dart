@@ -334,7 +334,8 @@ class AppController extends ChangeNotifier {
     if (trimmed.isEmpty) return false;
 
     final normalized = trimmed.replaceAll(RegExp(r'\D'), '');
-    if (normalized.isEmpty || normalized.length < 7) return false;
+    final lower = trimmed.replaceFirst('@', '').toLowerCase();
+    final isPhoneCandidate = normalized.isNotEmpty && normalized.length >= 7;
 
     final contactMatches = (registeredContacts ?? const <ContactItem>[]).any((
       contact,
@@ -342,11 +343,16 @@ class AppController extends ChangeNotifier {
       final contactPhone = contact.phone.replaceAll(RegExp(r'\D'), '');
       final contactId = contact.id.trim();
       final contactName = contact.name.trim();
+      final contactUsername = contact.name.trim().toLowerCase();
       return contactId == trimmed ||
-          contactId == trimmed.replaceFirst('@', '') ||
-          contactPhone == normalized ||
+          contactId == lower ||
+          (isPhoneCandidate &&
+              (contactPhone == normalized ||
+                  contactPhone.endsWith(normalized) ||
+                  normalized.endsWith(contactPhone))) ||
           contactName == trimmed ||
-          contactName.toLowerCase() == trimmed.toLowerCase();
+          contactName.toLowerCase() == lower ||
+          contactUsername == lower;
     });
 
     if (contactMatches) return true;
@@ -365,9 +371,16 @@ class AppController extends ChangeNotifier {
           username: '',
         );
 
-    return user.phone.replaceAll(RegExp(r'\D'), '') == normalized ||
-        user.username.trim().toLowerCase() == trimmed.toLowerCase() ||
-        user.id == trimmed;
+    final userDigits = user.phone.replaceAll(RegExp(r'\D'), '');
+    final isUserPhoneMatch = isPhoneCandidate && userDigits == normalized;
+    final isUserNameMatch =
+        user.username.trim().replaceFirst('@', '').toLowerCase() == lower ||
+        user.email.trim().toLowerCase() == lower;
+
+    return isUserPhoneMatch ||
+        isUserNameMatch ||
+        user.id == trimmed ||
+        user.id == lower;
   }
 
   bool isValidRegisteredChatTarget(String identifier) {
@@ -383,7 +396,7 @@ class AppController extends ChangeNotifier {
     if (trimmed.isEmpty) return null;
 
     final normalizedInput = trimmed.replaceAll(RegExp(r'\D'), '');
-    if (normalizedInput.length < 7) return null;
+    final query = trimmed.replaceFirst('@', '').toLowerCase();
 
     final existing = _registeredContacts.firstWhere(
       (contact) {
@@ -391,13 +404,15 @@ class AppController extends ChangeNotifier {
           RegExp(r'\D'),
           '',
         );
+        final contactNameLower = contact.name.trim().toLowerCase();
         return contact.id == trimmed ||
-            contact.id == trimmed.replaceFirst('@', '') ||
-            normalizedContactPhone == normalizedInput ||
-            normalizedContactPhone.endsWith(normalizedInput) ||
-            normalizedInput.endsWith(normalizedContactPhone) ||
+            contact.id == query ||
+            (normalizedInput.isNotEmpty &&
+                (normalizedContactPhone == normalizedInput ||
+                    normalizedContactPhone.endsWith(normalizedInput) ||
+                    normalizedInput.endsWith(normalizedContactPhone))) ||
             contact.name.trim() == trimmed ||
-            contact.name.trim().toLowerCase() == trimmed.toLowerCase();
+            contactNameLower == query;
       },
       orElse: () => ContactItem(
         id: '',
@@ -419,7 +434,10 @@ class AppController extends ChangeNotifier {
       if (user == null) return null;
 
       final normalizedTargetPhone = user.phone.replaceAll(RegExp(r'\D'), '');
-      if (normalizedTargetPhone.length < 7) return null;
+      if (normalizedTargetPhone.isNotEmpty &&
+          normalizedTargetPhone.length < 7) {
+        return null;
+      }
 
       return ContactItem(
         id: user.id,
@@ -433,6 +451,26 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<List<ContactItem>> searchUsers(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const [];
+
+    final matches = await BackendApiService.instance.searchUsers(trimmed);
+    return matches
+        .map(
+          (user) => ContactItem(
+            id: user.id,
+            name: user.name.isNotEmpty ? user.name : user.username,
+            phone: user.phone,
+            nativeLanguage: user.nativeLanguage,
+            flag: user.nativeFlag,
+            isRegistered: true,
+            isOnline: false,
+          ),
+        )
+        .toList(growable: false);
   }
 
   void openChat(ContactItem contact) {

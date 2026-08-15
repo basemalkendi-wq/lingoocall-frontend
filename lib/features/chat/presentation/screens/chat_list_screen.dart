@@ -1,12 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lingoocall/core/constants/app_colors.dart';
 import 'package:lingoocall/core/constants/app_constants.dart';
 import 'package:lingoocall/core/controllers/app_controller.dart';
 import 'package:lingoocall/core/localization/app_localizations.dart';
-import 'package:lingoocall/features/auth/domain/models/user_profile.dart';
 import 'package:lingoocall/features/chat/presentation/screens/chat_detail_screen.dart';
 import 'package:lingoocall/features/contacts/domain/models/contact_item.dart';
-import 'package:lingoocall/features/contacts/presentation/screens/public_profile_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   final AppController controller;
@@ -26,6 +26,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   final TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
   String _searchQuery = '';
+  bool _isSearchingUsers = false;
+  List<ContactItem> _searchResults = const [];
 
   @override
   void dispose() {
@@ -130,6 +132,38 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
+  Future<void> _runUserSearch(String rawQuery) async {
+    final query = rawQuery.trim();
+    if (query.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _searchResults = const [];
+          _isSearchingUsers = false;
+        });
+      }
+      return;
+    }
+
+    setState(() {
+      _isSearchingUsers = true;
+    });
+
+    try {
+      final matches = await widget.controller.searchUsers(query);
+      if (!mounted) return;
+      setState(() {
+        _searchResults = matches;
+        _isSearchingUsers = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _searchResults = const [];
+        _isSearchingUsers = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -190,6 +224,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   setState(() {
                     _searchQuery = val;
                   });
+                  unawaited(_runUserSearch(val));
                 },
               )
             : const Text(
@@ -252,35 +287,116 @@ class _ChatListScreenState extends State<ChatListScreen> {
             ),
           ),
 
-          if (isQueryUsername || isQueryPhoneNumber)
+          if ((isQueryUsername || isQueryPhoneNumber) &&
+              _searchQuery.trim().isNotEmpty)
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.grey.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
               ),
-              child: Row(
-                children: [
-                  const CircleAvatar(
-                    radius: 20,
-                    backgroundColor: Colors.grey,
-                    child: Icon(
-                      Icons.block_rounded,
-                      color: Colors.white,
-                      size: 20,
+              child: _isSearchingUsers
+                  ? const Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'جارٍ البحث عن المستخدم المسجل...',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ),
+                      ],
+                    )
+                  : _searchResults.isEmpty
+                  ? const Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: Colors.grey,
+                          child: Icon(
+                            Icons.person_search_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'لا يوجد مستخدم مسجل مطابق. جرّب اسم مستخدم أو رقم هاتف صحيح.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ),
+                      ],
+                    )
+                  : SizedBox(
+                      height: 110,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _searchResults.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final result = _searchResults[index];
+                          return InkWell(
+                            onTap: () => _openChatWithNumber(
+                              result.phone.isNotEmpty
+                                  ? result.phone
+                                  : result.id,
+                            ),
+                            child: Container(
+                              width: 150,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.08,
+                                ),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 18,
+                                    child: Text(
+                                      result.name.isNotEmpty
+                                          ? result.name
+                                                .substring(0, 1)
+                                                .toUpperCase()
+                                          : '?',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    result.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  Text(
+                                    result.phone,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'لا يمكن بدء المحادثة إلا مع مستخدم مسجل ومعتمد في LingooCall.',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ),
-                ],
-              ),
             ),
 
           // عرض قائمة المحادثات النشطة أو الواجهة الفارغة
