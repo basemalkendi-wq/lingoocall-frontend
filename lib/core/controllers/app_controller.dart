@@ -84,7 +84,8 @@ class AppController extends ChangeNotifier {
   Future<void> _restoreSessionFromPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     final storedUserJson = prefs.getString('current_user');
-    final savedPhone = prefs.getString('user_phone') ?? prefs.getString('phone') ?? '';
+    final savedPhone =
+        prefs.getString('user_phone') ?? prefs.getString('phone') ?? '';
 
     if (storedUserJson != null && storedUserJson.isNotEmpty) {
       try {
@@ -137,6 +138,7 @@ class AppController extends ChangeNotifier {
     _socketService.disconnect();
     _socketService.initSocket(
       userId: _currentUser.id,
+      userPhone: _currentUser.phone,
       onUserStatusChanged: (data) {
         notifyListeners();
       },
@@ -380,12 +382,23 @@ class AppController extends ChangeNotifier {
     final trimmed = identifier.trim();
     if (trimmed.isEmpty) return null;
 
+    final normalizedInput = trimmed.replaceAll(RegExp(r'\D'), '');
+    if (normalizedInput.length < 7) return null;
+
     final existing = _registeredContacts.firstWhere(
-      (contact) =>
-          contact.id == trimmed ||
-          contact.phone.replaceAll(RegExp(r'\D'), '') ==
-              trimmed.replaceAll(RegExp(r'\D'), '') ||
-          contact.name.trim() == trimmed,
+      (contact) {
+        final normalizedContactPhone = contact.phone.replaceAll(
+          RegExp(r'\D'),
+          '',
+        );
+        return contact.id == trimmed ||
+            contact.id == trimmed.replaceFirst('@', '') ||
+            normalizedContactPhone == normalizedInput ||
+            normalizedContactPhone.endsWith(normalizedInput) ||
+            normalizedInput.endsWith(normalizedContactPhone) ||
+            contact.name.trim() == trimmed ||
+            contact.name.trim().toLowerCase() == trimmed.toLowerCase();
+      },
       orElse: () => ContactItem(
         id: '',
         name: '',
@@ -404,6 +417,9 @@ class AppController extends ChangeNotifier {
     try {
       final user = await BackendApiService.instance.lookupUser(trimmed);
       if (user == null) return null;
+
+      final normalizedTargetPhone = user.phone.replaceAll(RegExp(r'\D'), '');
+      if (normalizedTargetPhone.length < 7) return null;
 
       return ContactItem(
         id: user.id,
